@@ -329,8 +329,77 @@ function auth_gate_popup(string $next): string
 function site_start(string $title, string $active = '', string $bodyClass = ''): void
 {
     global $config, $resort;
-    $signedIn = !empty($_SESSION['guest_id']);
-    $isHome   = ($active === 'home' && !$resort);
+    $signedIn    = !empty($_SESSION['guest_id']);
+    $isHome      = ($active === 'home' && !$resort);
+    $scriptName  = basename((string)($_SERVER['SCRIPT_NAME'] ?? ''));
+    $isRoomsPage = ($scriptName === 'rooms.php');
+    $isExclPage  = ($scriptName === 'exclusive.php');
+    $isPricePage = ($scriptName === 'pricelist.php');
+    $isPhotosPage = ($scriptName === 'photos.php');
+    $isRevPage   = ($scriptName === 'reviews.php');
+    $isSearchPage = ($scriptName === 'search.php');
+    $isBookPage  = ($scriptName === 'book.php');
+    $isBookingPage = ($scriptName === 'booking.php');
+    $isCheckoutPage = ($scriptName === 'checkout.php');
+    $isPaymentPage = ($scriptName === 'payment.php');
+    $isTripPage = ($scriptName === 'trip.php');
+    $isTripBookedPage = ($scriptName === 'trip_booked.php');
+    $isTripCheckoutPage = ($scriptName === 'trip_checkout.php');
+    $isLoginPage = ($scriptName === 'login.php');
+    $isRegisterPage = ($scriptName === 'register.php');
+    $isForgotPage = ($scriptName === 'forgot.php');
+    $isAccountPage = ($scriptName === 'account.php');
+    if ($isRoomsPage && !str_contains(' ' . $bodyClass . ' ', ' rooms-page ')) {
+        $bodyClass = trim($bodyClass . ' rooms-page');
+    }
+    if ($isExclPage && !str_contains(' ' . $bodyClass . ' ', ' exclusive-page ')) {
+        $bodyClass = trim($bodyClass . ' exclusive-page');
+    }
+    if ($isPricePage && !str_contains(' ' . $bodyClass . ' ', ' pricelist-page ')) {
+        $bodyClass = trim($bodyClass . ' pricelist-page');
+    }
+    if ($isPhotosPage && !str_contains(' ' . $bodyClass . ' ', ' photos-page ')) {
+        $bodyClass = trim($bodyClass . ' photos-page');
+    }
+    if ($isRevPage && !str_contains(' ' . $bodyClass . ' ', ' reviews-page ')) {
+        $bodyClass = trim($bodyClass . ' reviews-page');
+    }
+    if ($isSearchPage && !str_contains(' ' . $bodyClass . ' ', ' search-page ')) {
+        $bodyClass = trim($bodyClass . ' search-page');
+    }
+    if ($isBookPage && !str_contains(' ' . $bodyClass . ' ', ' book-page ')) {
+        $bodyClass = trim($bodyClass . ' book-page');
+    }
+    if ($isBookingPage && !str_contains(' ' . $bodyClass . ' ', ' booking-page ')) {
+        $bodyClass = trim($bodyClass . ' booking-page');
+    }
+    if ($isCheckoutPage && !str_contains(' ' . $bodyClass . ' ', ' checkout-page ')) {
+        $bodyClass = trim($bodyClass . ' checkout-page');
+    }
+    if ($isPaymentPage && !str_contains(' ' . $bodyClass . ' ', ' payment-page ')) {
+        $bodyClass = trim($bodyClass . ' payment-page');
+    }
+    if ($isTripPage && !str_contains(' ' . $bodyClass . ' ', ' trip-page ')) {
+        $bodyClass = trim($bodyClass . ' trip-page');
+    }
+    if ($isTripBookedPage && !str_contains(' ' . $bodyClass . ' ', ' trip-booked-page ')) {
+        $bodyClass = trim($bodyClass . ' trip-booked-page');
+    }
+    if ($isTripCheckoutPage && !str_contains(' ' . $bodyClass . ' ', ' trip-checkout-page ')) {
+        $bodyClass = trim($bodyClass . ' trip-checkout-page');
+    }
+    if ($isLoginPage && !str_contains(' ' . $bodyClass . ' ', ' login-page ')) {
+        $bodyClass = trim($bodyClass . ' login-page');
+    }
+    if ($isRegisterPage && !str_contains(' ' . $bodyClass . ' ', ' register-page ')) {
+        $bodyClass = trim($bodyClass . ' register-page');
+    }
+    if ($isForgotPage && !str_contains(' ' . $bodyClass . ' ', ' forgot-page ')) {
+        $bodyClass = trim($bodyClass . ' forgot-page');
+    }
+    if ($isAccountPage && !str_contains(' ' . $bodyClass . ' ', ' account-page ')) {
+        $bodyClass = trim($bodyClass . ' account-page');
+    }
     $hideNav  = str_contains(' ' . $bodyClass . ' ', ' no-nav ');
     if ($resort) {
         $nav = ['rooms' => [ru('rooms.php'), 'Book'], 'pricelist' => [ru('pricelist.php'), 'Price list'],
@@ -361,7 +430,7 @@ function site_start(string $title, string $active = '', string $bodyClass = ''):
 <title><?= h($title) ?> · <?= h($brandName) ?></title>
 <?= head_meta($title) ?>
 <?php if ($resort && resort_hero() !== '' && str_contains($bodyClass, 'landing')): ?><link rel="preload" as="image" href="<?= h(resort_hero()) ?>"><?php elseif ($isHome && is_file(__DIR__ . '/../assets/landing.jpg')): ?><link rel="preload" as="image" href="<?= h(asset_url('landing.jpg')) ?>"><?php endif; ?>
-<?= font_links(true, $isHome || str_contains(' ' . $bodyClass . ' ', ' landing ') || str_contains(' ' . $bodyClass . ' ', ' platform ')) ?>
+<?= font_links(true, $isHome || $isRoomsPage || $isExclPage || $isPricePage || $isPhotosPage || $isRevPage || $isSearchPage || $isBookPage || $isBookingPage || $isCheckoutPage || $isPaymentPage || $isTripPage || $isTripBookedPage || $isTripCheckoutPage || $isLoginPage || $isRegisterPage || $isForgotPage || $isAccountPage || str_contains(' ' . $bodyClass . ' ', ' landing ') || str_contains(' ' . $bodyClass . ' ', ' platform ') || str_contains(' ' . $bodyClass . ' ', ' room-detail ')) ?>
 <link rel="stylesheet" href="<?= h(asset_url('style.css')) ?>">
 <style><?= theme_css() ?></style>
 <script src="<?= h(asset_url('app.js')) ?>" defer></script>
@@ -667,6 +736,47 @@ function admin_start(string $title, string $active = ''): void
                  || (in_array($active, ['archive', 'links'], true) && !$resort);
     $resortName = $resort ? $config['resort'] : $config['platform'];
     $name = (string)($staffMember['full_name'] ?? '');
+    $adminScript = basename((string)($_SERVER['SCRIPT_NAME'] ?? ''));
+    $isAdminDash = ($adminScript === 'index.php' || $active === 'index');
+    $isAdminAnalytics = ($adminScript === 'analytics.php' || $active === 'analytics');
+    $isAdminCalendar = ($adminScript === 'calendar.php' || $active === 'calendar');
+    $isAdminResNew = ($adminScript === 'reservation_new.php');
+    $isAdminResView = ($adminScript === 'reservation_view.php');
+    $isAdminRecords = ($adminScript === 'records.php' || $active === 'records');
+    $isAdminArchive = ($adminScript === 'archive.php' || $active === 'archive');
+    $isAdminResorts = ($adminScript === 'resorts.php' || $active === 'resorts');
+    $isAdminReservations = ($adminScript === 'reservations.php' || ($active === 'reservations' && !$isAdminResNew && !$isAdminResView));
+    $adminClasses = [];
+    if ($isAdminDash) {
+        $adminClasses[] = 'admin-folio';
+        $adminClasses[] = 'admin-dashboard';
+    } elseif ($isAdminAnalytics) {
+        $adminClasses[] = 'admin-folio';
+        $adminClasses[] = 'admin-analytics';
+    } elseif ($isAdminCalendar) {
+        $adminClasses[] = 'admin-folio';
+        $adminClasses[] = 'admin-calendar';
+    } elseif ($isAdminResNew) {
+        $adminClasses[] = 'admin-folio';
+        $adminClasses[] = 'admin-reservation-new';
+    } elseif ($isAdminResView) {
+        $adminClasses[] = 'admin-folio';
+        $adminClasses[] = 'admin-reservation-view';
+    } elseif ($isAdminRecords) {
+        $adminClasses[] = 'admin-folio';
+        $adminClasses[] = 'admin-records';
+    } elseif ($isAdminArchive) {
+        $adminClasses[] = 'admin-folio';
+        $adminClasses[] = 'admin-archive';
+    } elseif ($isAdminResorts) {
+        $adminClasses[] = 'admin-folio';
+        $adminClasses[] = 'admin-resorts';
+    } elseif ($isAdminReservations) {
+        $adminClasses[] = 'admin-folio';
+        $adminClasses[] = 'admin-reservations';
+    }
+    $isAdminFolio = (bool)$adminClasses;
+    $adminBodyClass = $adminClasses ? ' ' . implode(' ', $adminClasses) : '';
     ?><!doctype html>
 <html lang="en">
 <head>
@@ -675,11 +785,11 @@ function admin_start(string $title, string $active = ''): void
 <meta name="robots" content="noindex">
 <meta name="color-scheme" content="light">
 <title><?= h($title) ?> · Staff · <?= h($resortName) ?></title>
-<?= font_links() ?>
+<?= font_links(false, $isAdminFolio) ?>
 <link rel="stylesheet" href="<?= h(asset_url('style.css', '../')) ?>">
 <script src="<?= h(asset_url('app.js', '../')) ?>" defer></script>
 </head>
-<body class="admin">
+<body class="admin<?= $adminBodyClass ?>">
 <a class="skip-link" href="#content">Skip to content</a>
 <div class="bg-layer" aria-hidden="true"></div>
 <div class="frame shell">
