@@ -1,0 +1,25 @@
+# Guest uploads (photos and videos attached to reviews).
+# Only plain pictures and videos may be downloaded from here, and nothing in this folder can ever run as code.
+Options -Indexes -ExecCGI
+Require all denied
+<FilesMatch "\.(jpe?g|png|webp|mp4|webm|mov)$">
+  Require all granted
+</FilesMatch>
+<IfModule mod_php.c>
+  php_flag engine off
+</IfModule>
+<IfModule mod_php7.c>
+  php_flag engine off
+</IfModule>
+<IfModule mod_php8.c>
+  php_flag engine off
+</IfModule>
+<IfModule mod_headers.c>
+  Header set X-Content-Type-Options "nosniff"
+</IfModule>
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresByType image/jpeg "access plus 30 days"
+  ExpiresByType image/png "access plus 30 days"
+  ExpiresByType image/webp "access plus 30 days"
+</IfModule>

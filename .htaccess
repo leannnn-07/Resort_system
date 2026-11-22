@@ -1,0 +1,19 @@
+# Opens the landing page first, hides folder listings, and blocks direct downloads of private files.
+DirectoryIndex landing.php index.php
+Options -Indexes
+
+<FilesMatch "\.(sql|md|bak|log|ini|sh)$">
+  Require all denied
+</FilesMatch>
+<Files "config.php">
+  Require all denied
+</Files>
+
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/css application/javascript image/svg+xml
+</IfModule>
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresByType image/jpeg "access plus 30 days"
+  ExpiresByType image/webp "access plus 30 days"
+</IfModule>

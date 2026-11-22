@@ -1,0 +1,430 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-22T15:26:00+08:00",
+  "title": "Design System: Vista",
+  "extensions": {
+    "colorMeta": {
+      "terracotta-ochre": {
+        "role": "primary",
+        "displayName": "Terracotta Ochre",
+        "canonical": "#a84217",
+        "tonalRamp": [
+          "oklch(22% 0.065 37)",
+          "oklch(31% 0.095 37)",
+          "oklch(41% 0.125 37)",
+          "oklch(49% 0.145 37)",
+          "oklch(60% 0.140 37)",
+          "oklch(72% 0.110 37)",
+          "oklch(85% 0.065 37)",
+          "oklch(95% 0.022 37)"
+        ]
+      },
+      "terracotta-ochre-deep": {
+        "role": "primary",
+        "displayName": "Terracotta Ochre Deep",
+        "canonical": "#8d3510",
+        "tonalRamp": [
+          "oklch(19% 0.060 36)",
+          "oklch(28% 0.090 36)",
+          "oklch(37% 0.118 36)",
+          "oklch(45% 0.132 36)",
+          "oklch(56% 0.125 36)",
+          "oklch(69% 0.098 36)",
+          "oklch(83% 0.056 36)",
+          "oklch(94% 0.020 36)"
+        ]
+      },
+      "reef-teal": {
+        "role": "secondary",
+        "displayName": "Reef Teal",
+        "canonical": "#065a6b",
+        "tonalRamp": [
+          "oklch(20% 0.045 215)",
+          "oklch(29% 0.062 215)",
+          "oklch(39% 0.078 215)",
+          "oklch(45% 0.084 215)",
+          "oklch(57% 0.082 215)",
+          "oklch(70% 0.068 215)",
+          "oklch(84% 0.042 215)",
+          "oklch(95% 0.014 215)"
+        ]
+      },
+      "reef-teal-deep": {
+        "role": "secondary",
+        "displayName": "Reef Teal Deep",
+        "canonical": "#044452",
+        "tonalRamp": [
+          "oklch(17% 0.038 216)",
+          "oklch(25% 0.054 216)",
+          "oklch(34% 0.068 216)",
+          "oklch(42% 0.074 216)",
+          "oklch(54% 0.072 216)",
+          "oklch(68% 0.058 216)",
+          "oklch(82% 0.036 216)",
+          "oklch(94% 0.012 216)"
+        ]
+      },
+      "travertine-gold": {
+        "role": "tertiary",
+        "displayName": "Travertine Gold",
+        "canonical": "#e8a85a",
+        "tonalRamp": [
+          "oklch(22% 0.042 68)",
+          "oklch(33% 0.068 68)",
+          "oklch(45% 0.092 68)",
+          "oklch(58% 0.112 68)",
+          "oklch(70% 0.118 68)",
+          "oklch(78% 0.112 68)",
+          "oklch(88% 0.072 68)",
+          "oklch(96% 0.025 68)"
+        ]
+      },
+      "travertine-pale": {
+        "role": "tertiary",
+        "displayName": "Travertine Pale",
+        "canonical": "#f4d6a8",
+        "tonalRamp": [
+          "oklch(24% 0.030 72)",
+          "oklch(36% 0.048 72)",
+          "oklch(49% 0.064 72)",
+          "oklch(62% 0.076 72)",
+          "oklch(75% 0.078 72)",
+          "oklch(84% 0.068 72)",
+          "oklch(90% 0.048 72)",
+          "oklch(97% 0.018 72)"
+        ]
+      },
+      "coral-limestone": {
+        "role": "neutral",
+        "displayName": "Coral Limestone",
+        "canonical": "#f7f3ec",
+        "tonalRamp": [
+          "oklch(20% 0.008 78)",
+          "oklch(32% 0.010 78)",
+          "oklch(46% 0.012 78)",
+          "oklch(60% 0.014 78)",
+          "oklch(74% 0.014 78)",
+          "oklch(85% 0.013 78)",
+          "oklch(93% 0.012 78)",
+          "oklch(97% 0.009 78)"
+        ]
+      },
+      "sand-recess": {
+        "role": "neutral",
+        "displayName": "Sand Recess",
+        "canonical": "#efe9de",
+        "tonalRamp": [
+          "oklch(19% 0.010 76)",
+          "oklch(31% 0.012 76)",
+          "oklch(45% 0.014 76)",
+          "oklch(59% 0.016 76)",
+          "oklch(73% 0.017 76)",
+          "oklch(84% 0.016 76)",
+          "oklch(91% 0.015 76)",
+          "oklch(96% 0.010 76)"
+        ]
+      },
+      "architectural-white": {
+        "role": "neutral",
+        "displayName": "Architectural White",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "oklch(18% 0 0)",
+          "oklch(32% 0 0)",
+          "oklch(46% 0 0)",
+          "oklch(60% 0 0)",
+          "oklch(74% 0 0)",
+          "oklch(86% 0 0)",
+          "oklch(94% 0 0)",
+          "oklch(100% 0 0)"
+        ]
+      },
+      "twilight-abyss": {
+        "role": "neutral",
+        "displayName": "Twilight Abyss",
+        "canonical": "#071926",
+        "tonalRamp": [
+          "oklch(16% 0.030 236)",
+          "oklch(22% 0.036 236)",
+          "oklch(32% 0.040 236)",
+          "oklch(44% 0.038 236)",
+          "oklch(58% 0.032 236)",
+          "oklch(72% 0.024 236)",
+          "oklch(85% 0.016 236)",
+          "oklch(95% 0.008 236)"
+        ]
+      },
+      "twilight-slate": {
+        "role": "neutral",
+        "displayName": "Twilight Slate",
+        "canonical": "#0d2738",
+        "tonalRamp": [
+          "oklch(18% 0.034 235)",
+          "oklch(27% 0.044 235)",
+          "oklch(38% 0.046 235)",
+          "oklch(50% 0.042 235)",
+          "oklch(63% 0.034 235)",
+          "oklch(76% 0.025 235)",
+          "oklch(88% 0.016 235)",
+          "oklch(96% 0.007 235)"
+        ]
+      },
+      "editorial-ink": {
+        "role": "neutral",
+        "displayName": "Editorial Ink",
+        "canonical": "#091b28",
+        "tonalRamp": [
+          "oklch(17% 0.028 236)",
+          "oklch(26% 0.032 236)",
+          "oklch(38% 0.032 236)",
+          "oklch(50% 0.028 236)",
+          "oklch(64% 0.022 236)",
+          "oklch(77% 0.016 236)",
+          "oklch(88% 0.010 236)",
+          "oklch(96% 0.005 236)"
+        ]
+      },
+      "coastal-slate": {
+        "role": "neutral",
+        "displayName": "Coastal Slate",
+        "canonical": "#425464",
+        "tonalRamp": [
+          "oklch(20% 0.022 238)",
+          "oklch(32% 0.026 238)",
+          "oklch(44% 0.030 238)",
+          "oklch(56% 0.028 238)",
+          "oklch(68% 0.024 238)",
+          "oklch(79% 0.018 238)",
+          "oklch(89% 0.011 238)",
+          "oklch(96% 0.005 238)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display Hero",
+        "purpose": "Primary full-bleed hero thesis headlines with optional 400 italic gold accent."
+      },
+      "headline": {
+        "displayName": "Section Masthead",
+        "purpose": "Major section titles on coral limestone anchored above hairline dividers."
+      },
+      "headline-water": {
+        "displayName": "Deep-Water Headline",
+        "purpose": "Editorial headlines inside twilight abyss contrast bands and closing folios."
+      },
+      "title": {
+        "displayName": "Card & Stay Title",
+        "purpose": "Resort names, room titles, and day-use cottage titles."
+      },
+      "quote": {
+        "displayName": "Editorial Pull-Quote",
+        "purpose": "Verified guest review quotations in Cormorant Garamond."
+      },
+      "body": {
+        "displayName": "Body & Tagline",
+        "purpose": "Lead sentences, resort taglines, and concise descriptions (max 56ch)."
+      },
+      "body-compact": {
+        "displayName": "Compact Metadata",
+        "purpose": "Card descriptions, inventory counts, dates, and index metadata."
+      },
+      "price": {
+        "displayName": "Tabular Rate",
+        "purpose": "Starting prices and totals in Reef Teal with tabular-nums alignment."
+      },
+      "label": {
+        "displayName": "Field Label",
+        "purpose": "Uppercase tracked labels exclusively inside form input cells—never eyebrows above headings."
+      }
+    },
+    "shadows": [
+      {
+        "name": "finder-float",
+        "value": "0 22px 48px rgba(4, 14, 22, 0.42)",
+        "purpose": "Reserved exclusively for white availability or checkout bars floating over full-bleed twilight photography."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-editorial",
+        "value": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "purpose": "Primary easing for sticky header transitions, card lift, and index row hover shifts."
+      },
+      {
+        "name": "duration-fast",
+        "value": "0.18s",
+        "purpose": "Hover and focus transitions on buttons, tabs, and hairline links."
+      },
+      {
+        "name": "duration-nav",
+        "value": "0.28s",
+        "purpose": "Transparent-to-limestone fixed navigation transition on scroll."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "mobile",
+        "value": "640px"
+      },
+      {
+        "name": "tablet",
+        "value": "1020px"
+      },
+      {
+        "name": "desktop-rail",
+        "value": "1200px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Terracotta Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Primary conversion action for availability submission and closing CTAs.",
+      "html": "<button type=\"button\" class=\"ds-btn-primary\">Browse all 6 resorts</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 26px; background: #a84217; color: #ffffff; border: 0; border-radius: 3px; font-family: 'Instrument Sans', system-ui, sans-serif; font-size: 15px; font-weight: 600; cursor: pointer; transition: background 0.18s ease; } .ds-btn-primary:hover { background: #8d3510; } .ds-btn-primary:focus-visible { outline: 2px solid #e8a85a; outline-offset: 2px; }"
+    },
+    {
+      "name": "Editorial Ink Button",
+      "kind": "button",
+      "refersTo": "button-ink",
+      "description": "High-contrast dark button for featured resort cards and solid-header primary actions.",
+      "html": "<a href=\"#\" class=\"ds-btn-ink\">View resort</a>",
+      "css": ".ds-btn-ink { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 22px; background: #091b28; color: #ffffff; border-radius: 3px; font-family: 'Instrument Sans', system-ui, sans-serif; font-size: 14px; font-weight: 600; text-decoration: none; transition: background 0.18s ease; } .ds-btn-ink:hover { background: #a84217; } .ds-btn-ink:focus-visible { outline: 2px solid #065a6b; outline-offset: 2px; }"
+    },
+    {
+      "name": "Deep-Water Outline Button",
+      "kind": "button",
+      "refersTo": "button-line",
+      "description": "Secondary ghost action paired beside Terracotta Ochre on #071926 deep-water bands.",
+      "html": "<div class=\"ds-dark-stage\"><a href=\"#\" class=\"ds-btn-line\">Log in</a></div>",
+      "css": ".ds-dark-stage { background: #071926; padding: 16px; display: inline-block; } .ds-btn-line { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 24px; background: transparent; border: 1px solid rgba(255, 255, 255, 0.42); color: #ffffff; border-radius: 3px; font-family: 'Instrument Sans', system-ui, sans-serif; font-size: 15px; font-weight: 600; text-decoration: none; transition: background 0.18s ease, border-color 0.18s ease; } .ds-btn-line:hover { background: rgba(255, 255, 255, 0.1); border-color: #ffffff; } .ds-btn-line:focus-visible { outline: 2px solid #e8a85a; outline-offset: 2px; }"
+    },
+    {
+      "name": "Architectural Availability Finder",
+      "kind": "input",
+      "refersTo": "finder-bar",
+      "description": "Hairline-paned white availability ledger floating over twilight photography with single Guests input.",
+      "html": "<form class=\"ds-finder\"><label class=\"ds-f-cell\"><span>Stay type</span><select><option>Cottage (Day use)</option><option>Overnight room</option></select></label><label class=\"ds-f-cell\"><span>Visit date</span><input type=\"date\" value=\"2026-11-23\"></label><label class=\"ds-f-cell\"><span>Guests</span><input type=\"number\" value=\"4\" min=\"1\" max=\"50\"></label><button type=\"button\" class=\"ds-finder-btn\">Find cottages</button></form>",
+      "css": ".ds-finder { display: grid; grid-template-columns: 1.3fr 1.15fr 0.82fr auto; background: #ffffff; color-scheme: light; border: 1px solid rgba(9, 27, 40, 0.18); border-radius: 4px; box-shadow: 0 22px 48px rgba(4, 14, 22, 0.42); overflow: hidden; font-family: 'Instrument Sans', system-ui, sans-serif; } .ds-f-cell { display: flex; flex-direction: column; justify-content: center; gap: 3px; padding: 13px 18px; border-right: 1px solid rgba(9, 27, 40, 0.13); cursor: pointer; transition: background 0.16s ease; } .ds-f-cell:hover { background: #faf8f4; } .ds-f-cell:focus-within { background: #faf6ef; box-shadow: inset 0 -2px 0 #a84217; } .ds-f-cell span { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #425464; } .ds-f-cell select, .ds-f-cell input { width: 100%; border: 0; border-radius: 0; background: transparent; padding: 2px 0 0; font-family: inherit; font-size: 15px; font-weight: 600; color: #091b28; caret-color: #a84217; min-height: 28px; outline: none; } .ds-finder-btn { border: 0; background: #a84217; color: #ffffff; font-family: inherit; font-size: 15px; font-weight: 600; padding: 0 28px; min-height: 66px; cursor: pointer; transition: background 0.18s ease; } .ds-finder-btn:hover { background: #8d3510; } .ds-finder-btn:focus-visible { outline: 2px solid #ffffff; outline-offset: -4px; }"
+    },
+    {
+      "name": "Resort Folio Plate Card",
+      "kind": "card",
+      "refersTo": "card-plate",
+      "description": "Rectilinear 0px resort card pairing a framed coastal color-field plate with City, Barangay below the heading.",
+      "html": "<article class=\"ds-card\"><div class=\"ds-card-plate\"><span>Brgy. Bolong</span></div><div class=\"ds-card-body\"><h3>Azzura Beach Resort and Hotel</h3><p class=\"ds-place\">Zamboanga City, Brgy. Bolong</p><p class=\"ds-desc\">Soft brown sand, a pool, and kayaks, twenty minutes from the city.</p><div class=\"ds-card-foot\"><div><span class=\"ds-price\">From ₱300.00</span><span class=\"ds-unit\">cottage</span></div><a href=\"#\" class=\"ds-link\">View &rarr;</a></div></div></article>",
+      "css": ".ds-card { max-width: 340px; display: flex; flex-direction: column; background: #ffffff; border: 1px solid rgba(9, 27, 40, 0.13); font-family: 'Instrument Sans', system-ui, sans-serif; transition: border-color 0.2s ease, transform 0.25s cubic-bezier(0.22, 1, 0.36, 1); } .ds-card:hover { border-color: rgba(9, 27, 40, 0.24); transform: translateY(-2px); } .ds-card-plate { position: relative; aspect-ratio: 16 / 10; display: flex; align-items: flex-end; padding: 18px; background: linear-gradient(180deg, rgba(7, 25, 38, 0.2) 0%, rgba(7, 25, 38, 0.68) 100%), linear-gradient(160deg, #0b4f5c 0%, #1b9aa3 55%, #8fe0d0 100%); } .ds-card-plate::after { content: ''; position: absolute; inset: 12px; border: 1px solid rgba(255, 255, 255, 0.24); pointer-events: none; } .ds-card-plate span { position: relative; z-index: 1; padding: 6px; font-family: 'Cormorant Garamond', Georgia, serif; font-size: 28px; font-weight: 500; color: #ffffff; } .ds-card-body { padding: 20px 22px 22px; display: flex; flex-direction: column; flex: 1; } .ds-card-body h3 { margin: 0; font-family: 'Cormorant Garamond', Georgia, serif; font-size: 1.62rem; font-weight: 600; line-height: 1.12; color: #091b28; } .ds-place { margin: 6px 0 0; font-size: 13.5px; font-weight: 600; color: #065a6b; } .ds-desc { margin: 8px 0 18px; font-size: 14px; line-height: 1.5; color: #425464; } .ds-card-foot { margin-top: auto; padding-top: 16px; border-top: 1px solid rgba(9, 27, 40, 0.13); display: flex; align-items: center; justify-content: space-between; } .ds-price { display: block; font-size: 16.5px; font-weight: 700; color: #065a6b; font-variant-numeric: tabular-nums; } .ds-unit { font-size: 12.5px; color: #425464; } .ds-link { font-size: 14px; font-weight: 600; color: #091b28; text-decoration: none; padding: 6px 0; border-bottom: 1px solid #091b28; transition: color 0.18s ease, border-color 0.18s ease; } .ds-link:hover { color: #a84217; border-bottom-color: #a84217; }"
+    },
+    {
+      "name": "Hairline-Flush Masthead Tabs",
+      "kind": "nav",
+      "refersTo": "tab-item",
+      "description": "44px touch-target directory tabs aligned flush onto the masthead hairline beside the Reef Teal archive link.",
+      "html": "<div class=\"ds-masthead\"><h2>Where to stay</h2><div class=\"ds-mh-right\"><div class=\"ds-tabs\" role=\"tablist\"><button type=\"button\" class=\"ds-tab is-active\" role=\"tab\" aria-selected=\"true\">Resorts (6)</button><button type=\"button\" class=\"ds-tab\" role=\"tab\" aria-selected=\"false\">Day-use cottages (4)</button></div><a href=\"#\" class=\"ds-all\">All resorts &rarr;</a></div></div>",
+      "css": ".ds-masthead { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; border-bottom: 1px solid rgba(9, 27, 40, 0.24); background: #f7f3ec; padding: 12px 16px 0; font-family: 'Instrument Sans', system-ui, sans-serif; } .ds-masthead h2 { margin: 0; padding-bottom: 16px; font-family: 'Cormorant Garamond', Georgia, serif; font-size: 2.2rem; font-weight: 500; line-height: 1.04; color: #091b28; } .ds-mh-right { display: flex; align-items: flex-end; gap: 24px; } .ds-tabs { display: inline-flex; gap: 20px; } .ds-tab { border: 0; background: transparent; min-height: 44px; padding: 10px 0 16px; margin-bottom: -1px; border-bottom: 2px solid transparent; font-family: inherit; font-size: 14.5px; font-weight: 600; color: #425464; cursor: pointer; transition: color 0.18s ease, border-color 0.18s ease; } .ds-tab:hover, .ds-tab.is-active { color: #091b28; } .ds-tab.is-active { border-bottom-color: #a84217; } .ds-tab:focus-visible, .ds-all:focus-visible { outline: 2px solid #065a6b; outline-offset: 2px; } .ds-all { display: inline-flex; align-items: center; min-height: 44px; padding: 10px 0 16px; font-size: 14px; font-weight: 600; color: #065a6b; text-decoration: none; } .ds-all:hover { color: #044452; text-decoration: underline; text-underline-offset: 4px; }"
+    },
+    {
+      "name": "Compact Directory Index Row",
+      "kind": "custom",
+      "refersTo": "card-plate",
+      "description": "Zero-orphan horizontal hairline link for additional resorts beyond the 3-column folio row.",
+      "html": "<a href=\"#\" class=\"ds-index-row\"><span class=\"ds-ir-name\">Dakak Park and Beach Resort</span><span class=\"ds-ir-loc\">Dapitan City, Brgy. Taguilon</span><span class=\"ds-ir-price\">From ₱2,000.00 cottage</span><span class=\"ds-ir-go\">Open &rarr;</span></a>",
+      "css": ".ds-index-row { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 0.9fr) auto; align-items: center; gap: 16px; padding: 16px 8px; background: #f7f3ec; border-top: 1px solid rgba(9, 27, 40, 0.24); border-bottom: 1px solid rgba(9, 27, 40, 0.13); text-decoration: none; font-family: 'Instrument Sans', system-ui, sans-serif; transition: background 0.16s ease, padding-left 0.2s cubic-bezier(0.22, 1, 0.36, 1); } .ds-index-row:hover { background: #efe9de; padding-left: 14px; } .ds-index-row:focus-visible { outline: 2px solid #065a6b; outline-offset: -2px; } .ds-ir-name { font-family: 'Cormorant Garamond', Georgia, serif; font-size: 1.42rem; font-weight: 600; color: #091b28; } .ds-ir-loc { font-size: 13.5px; color: #425464; } .ds-ir-price { font-size: 14px; font-weight: 700; color: #065a6b; font-variant-numeric: tabular-nums; } .ds-ir-go { font-size: 13.5px; font-weight: 600; color: #091b28; white-space: nowrap; }"
+    },
+    {
+      "name": "Deep-Water Numbered Ledger Item",
+      "kind": "custom",
+      "refersTo": "button-line",
+      "description": "Ordered step row inside #071926 twilight bands using travertine gold serif numerals.",
+      "html": "<div class=\"ds-water-item\"><span class=\"ds-num\">01</span><div><h3>Check live dates &amp; real totals</h3><p>Choose a day-use cottage, overnight room, or whole-place rental with per-guest entrance fees calculated before checkout.</p></div></div>",
+      "css": ".ds-water-item { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 20px; padding: 24px 20px; background: #071926; border-top: 1px solid rgba(255, 255, 255, 0.16); border-bottom: 1px solid rgba(255, 255, 255, 0.16); align-items: baseline; font-family: 'Instrument Sans', system-ui, sans-serif; } .ds-num { font-family: 'Cormorant Garamond', Georgia, serif; font-size: 32px; font-weight: 500; line-height: 1; color: #e8a85a; font-variant-numeric: tabular-nums; } .ds-water-item h3 { margin: 0; font-size: 17px; font-weight: 600; color: #ffffff; } .ds-water-item p { margin: 6px 0 0; font-size: 14.5px; line-height: 1.58; color: #cbd9e2; max-width: 56ch; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Zamboanga Coral & Limestone Folio",
+    "overview": "Vista's visual language treats Zamboanga beach resort booking with the composure of a print coastal monograph and the immediacy of a live availability ledger. Rather than floating translucent glass cards over busy backgrounds, every guest-facing screen alternates between sun-warmed coral limestone paper and deep twilight sea contrast bands, letting full-bleed photography, crisp hairline dividers, and monumental serif typography carry the atmosphere while prices, capacities, and dates remain effortlessly scannable on phones.\n\nThe system is intentionally flat and architectural. Surfaces sit directly on the page plane, separated by thin maritime-ink rules and disciplined vertical pacing rather than drop shadows or rounded pill chrome. Across guest-facing surfaces—homepage, resort directory, per-resort landing pages, stay details, and checkout—this Folio identity governs every typographic, chromatic, and structural choice. The staff and admin operations desk remains a flat, high-density operational workspace focused on tables, calendars, and payment verification speed, sharing the same discipline of crisp contrast, zero frosted-glass bloat, and restrained color.\n\nLegacy frosted-glass blur panels, soft ambient glow orbs, gradient headline text, and eyebrow/kicker labels above headings are explicitly retired.",
+    "keyCharacteristics": [
+      "Sun-warmed coral limestone ground paired with deep Zamboanga twilight sea contrast bands (60-30-10 pacing).",
+      "Monumental Cormorant Garamond display headlines anchored by crisp Instrument Sans controls, rates, and tabular figures.",
+      "Rectilinear architectural framing (0px on plates and cards, 3px on buttons, 4px on floating finder bars) divided by 1px hairlines.",
+      "Strict flat-by-default surfaces with shadow reserved solely for floating hero search or checkout bars over photography.",
+      "High-contrast accessibility across both light paper (>=6.1:1) and deep-water dark bands (>=9.1:1), with zero fabricated metrics or decorative ornament."
+    ],
+    "rules": [
+      {
+        "name": "The 60-30-10 Coastal Pacing Rule",
+        "body": "Sixty percent of every guest page lives on sunlit coral limestone and architectural white; thirty percent anchors the rhythm in full-bleed twilight abyss bands and deep ink; terracotta-ochre, reef teal, and travertine gold stay within ten percent so every action and price reads instantaneously.",
+        "section": "colors"
+      },
+      {
+        "name": "The Dark-Band Gold Rule",
+        "body": "Travertine gold (#e8a85a) and travertine pale (#f4d6a8) never appear as text or icons on light limestone or white surfaces—they are reserved exclusively for deep twilight abyss (#071926) grounds and dark photography.",
+        "section": "colors"
+      },
+      {
+        "name": "The Light-Surface Teal Floor",
+        "body": "Interactive links and starting prices on light surfaces always use Reef Teal (#065a6b) or Editorial Ink (#091b28), never lighter coastal teals that drop below WCAG AA 4.5:1 contrast.",
+        "section": "colors"
+      },
+      {
+        "name": "The Zero-Eyebrow Rule",
+        "body": "Never place an uppercase tracked kicker, pill badge, or small label above a display or section heading. Place location metadata (City, Barangay) and resort attributions directly beneath the heading in sentence case.",
+        "section": "typography"
+      },
+      {
+        "name": "The Single-Italic Accent Rule",
+        "body": "Reserve Cormorant Garamond italics (400 weight) for one concluding phrase inside dark-band display headlines (open for your date., without the inbox wait., beach day.) so emphasis stays unmistakable and never clutters body text.",
+        "section": "typography"
+      },
+      {
+        "name": "The Tabular Numerals Rule",
+        "body": "Every peso rate, guest count, room/cottage inventory figure, and rating average sets font-variant-numeric: tabular-nums so numbers align cleanly across grids and index rows.",
+        "section": "typography"
+      },
+      {
+        "name": "The Shared 1200px Rail Rule",
+        "body": "Navigation, content bands, and footer always share the exact same 1200px inner container and 28px (18px mobile) outer gutters so the left wordmark and right action button lock vertically to every section edge below.",
+        "section": "layout"
+      },
+      {
+        "name": "The Zero-Orphan Directory Rule",
+        "body": "Never render an unbalanced trailing row of 1 or 2 cards beneath a 3-column grid. Promote one lead item to a full-width horizontal spread, fill a complete 3-column folio row, and list remaining items in a compact horizontal index below.",
+        "section": "layout"
+      },
+      {
+        "name": "The Flat-By-Default Rule",
+        "body": "Every surface on limestone or deep-water grounds is completely flat (box-shadow: none, backdrop-filter: none). Elevation shadows appear only when an interactive white bar floats directly across full-bleed photography.",
+        "section": "elevation"
+      },
+      {
+        "name": "The No-Glass Rule",
+        "body": "Decorative backdrop-filter: blur() panels are prohibited on guest surfaces and cards. Overlays over photography use directional linear dark-water scrims (rgba(7, 25, 38, 0.88) fading to 0.28 on desktop; uniform 0.76->0.90 vertical scrim on phones) for guaranteed legibility.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Sharp-Plate, Crisp-Control Rule",
+        "body": "Structural surfaces and imagery stay square (0px), interactive controls soften just to 3px (4px on floating search bars), and oversized 16px+ pill radii are avoided.",
+        "section": "shapes"
+      }
+    ],
+    "dos": [
+      "Do alternate sunlit Coral Limestone (#f7f3ec) bands with full-bleed Twilight Abyss (#071926) bands to maintain the 60-30-10 magazine rhythm across guest pages.",
+      "Do lock every header, content band, and footer to the shared 1200px container (28px desktop / 18px mobile gutters).",
+      "Do place City, Barangay location sub-lines and resort attributions directly below headings in sentence case, reserving full street addresses for inside resort pages and booking confirmations.",
+      "Do use drawn inline SVG icons for stars, arrows, and UI glyphs, and set font-variant-numeric: tabular-nums on every price, inventory count, and rating.",
+      "Do enforce >=44px touch heights on all buttons, tabs, and action links, and apply 2px solid #e8a85a :focus-visible outlines on every dark band.",
+      "Do render live database values (archived_at IS NULL) directly at full opacity on load—never hide below-the-fold sections behind scroll-gated opacity: 0 traps."
+    ],
+    "donts": [
+      "Don't place uppercase tracked eyebrows, kickers, or glowing-dot pill badges above headings.",
+      "Don't apply backdrop-filter: blur(), drop shadows on resting cards, gradient headline text, ambient glow blobs, or one-sided accent border bars.",
+      "Don't put Travertine Gold (#e8a85a) text or icons on light limestone or white backgrounds, or low-contrast mid-teals on light surfaces.",
+      "Don't add meaningless decorative sequence numbers (02, 03, 04) to unranked cards, or fabricate customer counts, booking-time guarantees, press logos, or awards beyond resort_db.",
+      "Don't allow nested bordered inputs inside paned search/checkout bars—always scope borderless input rules specifically enough to clear global input borders.",
+      "Don't split guest count into separate Adults and Children fields on availability or booking forms—always use one total Guests field."
+    ]
+  }
+}
