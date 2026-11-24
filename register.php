@@ -10,7 +10,7 @@ if (current_guest($pdo)) {
 $error  = '';
 $notice = '';
 $next   = safe_next($_POST['next'] ?? $_GET['next'] ?? '', 'resorts.php');   // after sign-up: the resorts page (unless a booking was in progress)
-$form   = ['first_name' => '', 'last_name' => '', 'email' => '', 'phone' => ''];
+$form   = ['first_name' => '', 'middle_name' => '', 'last_name' => '', 'email' => '', 'phone' => ''];
 $pending = code_pending('register');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -26,8 +26,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pass  = (string)($_POST['password'] ?? '');
             $pass2 = (string)($_POST['password2'] ?? '');
 
-            if ($form['first_name'] === '' || mb_strlen($form['first_name']) > 60 || $form['last_name'] === '' || mb_strlen($form['last_name']) > 60) {
-                throw new RuntimeException('Enter your first and last name.');
+            if ($form['first_name'] === '' || mb_strlen($form['first_name']) > 60 || $form['last_name'] === '' || mb_strlen($form['last_name']) > 60 || mb_strlen($form['middle_name']) > 60) {
+                throw new RuntimeException('Enter your first and last name (up to 60 characters each).');
             }
             if (!filter_var($form['email'], FILTER_VALIDATE_EMAIL) || mb_strlen($form['email']) > 120) {
                 throw new RuntimeException('Enter a valid email address.');
@@ -69,12 +69,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             if ($row) {
                 // They have booked before with this email: attach the account to that guest record, so old bookings show up.
-                $pdo->prepare('UPDATE guest SET password_hash = ?, email_verified_at = ?, phone = COALESCE(phone, ?) WHERE guest_id = ?')
-                    ->execute([$d['hash'], date('Y-m-d H:i:s'), $d['phone'] ?: null, $row['guest_id']]);
+                $pdo->prepare('UPDATE guest SET first_name = ?, middle_name = COALESCE(?, middle_name), last_name = ?, password_hash = ?, email_verified_at = ?, phone = COALESCE(phone, ?) WHERE guest_id = ?')
+                    ->execute([$d['first_name'], ($d['middle_name'] ?? '') !== '' ? $d['middle_name'] : null, $d['last_name'], $d['hash'], date('Y-m-d H:i:s'), $d['phone'] ?: null, $row['guest_id']]);
                 $guestId = (int)$row['guest_id'];
             } else {
-                $pdo->prepare('INSERT INTO guest (first_name, last_name, email, phone, password_hash, email_verified_at) VALUES (?, ?, ?, ?, ?, ?)')
-                    ->execute([$d['first_name'], $d['last_name'], $d['email'], $d['phone'] ?: null, $d['hash'], date('Y-m-d H:i:s')]);
+                $pdo->prepare('INSERT INTO guest (first_name, middle_name, last_name, email, phone, password_hash, email_verified_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+                    ->execute([$d['first_name'], ($d['middle_name'] ?? '') !== '' ? $d['middle_name'] : null, $d['last_name'], $d['email'], $d['phone'] ?: null, $d['hash'], date('Y-m-d H:i:s')]);
                 $guestId = (int)$pdo->lastInsertId();
             }
             $pdo->commit();
@@ -114,7 +114,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 site_start('Create account', 'account', 'no-nav');
 $q = $next !== 'resorts.php' ? '?next=' . urlencode($next) : '';
 $authBg = is_file(__DIR__ . '/assets/resorts/vista-del-mar.jpg') ? 'assets/resorts/vista-del-mar.jpg' : 'assets/landing.jpg';
+$backUrl = auth_back_url();
 ?>
+<div class="auth-outer-bar">
+  <a class="btn sm page-back auth-back-btn" href="<?= h($backUrl) ?>" data-auth-back>&larr; Back</a>
+</div>
 <div class="auth-shell">
   <aside class="auth-visual" style="background-image:url('<?= h($authBg) ?>')" aria-hidden="true">
     <div class="auth-v-top">
@@ -173,6 +177,7 @@ $authBg = is_file(__DIR__ . '/assets/resorts/vista-del-mar.jpg') ? 'assets/resor
           <label><span>Last name</span><input placeholder="Santos" name="last_name" value="<?= h($form['last_name']) ?>" maxlength="60" autocomplete="family-name" required autofocus></label>
           <label><span>First name</span><input placeholder="Maria" name="first_name" value="<?= h($form['first_name']) ?>" maxlength="60" autocomplete="given-name" required></label>
         </div>
+        <label><span>Middle name <small class="muted">(optional)</small></span><input placeholder="Cruz" name="middle_name" value="<?= h($form['middle_name']) ?>" maxlength="60" autocomplete="additional-name"></label>
         <label><span>Email</span><input placeholder="you@example.com" type="email" name="email" value="<?= h($form['email']) ?>" maxlength="120" autocomplete="email" required></label>
         <label><span>Phone <small class="muted">(optional)</small></span><input placeholder="0917 123 4567" type="tel" name="phone" value="<?= h($form['phone']) ?>" maxlength="30" autocomplete="tel"></label>
         <div class="auth-row">

@@ -4,7 +4,6 @@ require_once __DIR__ . '/includes/booking.php';
 require_once __DIR__ . '/includes/trips.php';
 
 $singleResort = optional_resort($pdo);
-require_guest_to_book($pdo);   // checking availability needs an account
 
 $mode       = (($_GET['mode'] ?? '') === 'rooms' || (empty($_GET['mode']) && !empty($_GET['check_out']))) ? 'rooms' : 'cottage';
 $in         = (string)($_GET['check_in'] ?? add_days(today(), 1));

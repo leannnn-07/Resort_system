@@ -8,7 +8,7 @@ require_once __DIR__ . '/account_link.php';
 require_once __DIR__ . '/notifications.php';
 
 /** Web fonts (optional: the site falls back to system fonts if offline). Public pages use Fraunces + Inter, the showcase homepage uses Cormorant Garamond + Instrument Sans, and the staff desk uses Inter + Sora. */
-function font_links(bool $public = false, bool $magazine = false): string
+function font_links(bool $public = false, bool $magazine = true): string
 {
     if ($magazine) {
         $family = 'family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500;1,600&family=Instrument+Sans:wght@400;500;600;700';
@@ -278,7 +278,7 @@ function initials(string $name): string
 }
 
 /**
- * Booking needs an account. Call this at the top of any page that checks availability, books a stay or builds a trip.
+ * Booking needs an account. Call this at the top of any page that books a stay or builds a trip.
  * A guest who is not logged in is sent to the login page (which opens the "Create an account first to book" pop-up),
  * and after logging in or signing up they come straight back to where they were ($next, or the page they asked for).
  */
@@ -318,7 +318,7 @@ function auth_gate_popup(string $next): string
          . '<div class="modal-card">'
          . '<span class="modal-icon" aria-hidden="true">' . icon('shield', 26) . '</span>'
          . '<h2 id="gate-title">Create an account first to book</h2>'
-         . '<p id="gate-text">You need an account to check availability, book a stay or plan a trip. It only takes a minute. Already have one? Just log in.</p>'
+         . '<p id="gate-text">You need an account to book a stay or plan a trip. It only takes a minute. Already have one? Just log in.</p>'
          . '<div class="modal-actions">'
          . '<a class="btn primary" href="' . h($register) . '" data-modal-focus>Create account</a>'
          . '<button class="btn" type="button" data-modal-close>Log in</button>'
@@ -619,13 +619,14 @@ function admin_hubs(): array
             'staff'        => ['staff.php',        'Staff',        'admin'],
         ]],
         'services' => ['title' => 'Services', 'icon' => 'services', 'pages' => [
-            'buildings'    => ['buildings.php',  'Buildings',     'admin'],
-            'room_types'   => ['room_types.php', 'Room types',    'admin'],
-            'pools'        => ['pools.php',      'Pools',         'admin'],
-            'services'     => ['services.php',   'Add-ons',       'admin'],
-            'pricelist'    => ['pricelist.php',  'Price list',    'admin'],
-            'gallery'      => ['gallery.php',    'Resort photos', 'admin'],
-            'photos'       => ['photos.php',     'Room photos',   'admin'],
+            'buildings'    => ['buildings.php',  'Buildings',         'admin'],
+            'room_types'   => ['room_types.php', 'Room types',        'admin'],
+            'pools'        => ['pools.php',      'Pools',             'admin'],
+            'services'     => ['services.php',   'Add-ons',           'admin'],
+            'pricelist'    => ['pricelist.php',  'Price list',        'admin'],
+            'discounts'    => ['discounts.php',  'Special discounts', 'admin'],
+            'gallery'      => ['gallery.php',    'Resort photos',     'admin'],
+            'photos'       => ['photos.php',     'Room photos',       'admin'],
         ]],
         // Super admin only. Staff sign-ins and guest (user) accounts are kept apart, as two tabs.
         'accounts' => ['title' => 'Accounts', 'icon' => 'shield', 'group' => 'Platform', 'pages' => [
@@ -672,6 +673,7 @@ function admin_start(string $title, string $active = ''): void
             'rooms'      => 'buildings',
             'room_types' => 'buildings',
             'services'   => 'pricelist',
+            'discounts'  => 'pricelist',
             'photos'     => 'gallery',
         ];
         if (isset($subMap[$active])) {
@@ -744,7 +746,25 @@ function admin_start(string $title, string $active = ''): void
     $isAdminResView = ($adminScript === 'reservation_view.php');
     $isAdminRecords = ($adminScript === 'records.php' || $active === 'records');
     $isAdminArchive = ($adminScript === 'archive.php' || $active === 'archive');
-    $isAdminResorts = ($adminScript === 'resorts.php' || $active === 'resorts');
+    $isAdminResortNew = ($adminScript === 'resort_new.php');
+    $isAdminResorts = ($adminScript === 'resorts.php' || ($active === 'resorts' && !$isAdminResortNew));
+    $isAdminBuildings = ($adminScript === 'buildings.php' || $active === 'buildings');
+    $isAdminRoomTypes = ($adminScript === 'room_types.php' || $active === 'room_types');
+    $isAdminRooms = ($adminScript === 'rooms.php' || $active === 'rooms');
+    $isAdminPools = ($adminScript === 'pools.php' || $active === 'pools');
+    $isAdminServices = ($adminScript === 'services.php' || $active === 'services');
+    $isAdminPricelist = ($adminScript === 'pricelist.php' || $adminScript === 'discounts.php' || $active === 'pricelist' || $active === 'discounts');
+    $isAdminGallery = ($adminScript === 'gallery.php' || $active === 'gallery');
+    $isAdminPhotos = ($adminScript === 'photos.php' || $active === 'photos');
+    $isAdminReviews = ($adminScript === 'reviews.php' || $active === 'reviews');
+    $isAdminLinks = ($adminScript === 'links.php' || $active === 'links');
+    $isAdminAccounts = ($adminScript === 'accounts.php' || $adminScript === 'admins.php' || $active === 'admins');
+    $isAdminStaff = ($adminScript === 'staff.php' || $active === 'staff');
+    $isAdminGuests = ($adminScript === 'guests.php' || $active === 'guests');
+    $isAdminUsers = ($adminScript === 'users.php' || $active === 'users');
+    $isAdminPlatform = ($adminScript === 'platform.php' || $active === 'platform');
+    $isAdminSettings = ($adminScript === 'settings.php' || $active === 'settings');
+    $isAdminSearch = ($adminScript === 'search.php' || $active === 'search');
     $isAdminReservations = ($adminScript === 'reservations.php' || ($active === 'reservations' && !$isAdminResNew && !$isAdminResView));
     $adminClasses = [];
     if ($isAdminDash) {
@@ -768,9 +788,63 @@ function admin_start(string $title, string $active = ''): void
     } elseif ($isAdminArchive) {
         $adminClasses[] = 'admin-folio';
         $adminClasses[] = 'admin-archive';
+    } elseif ($isAdminResortNew) {
+        $adminClasses[] = 'admin-folio';
+        $adminClasses[] = 'admin-resort-new';
     } elseif ($isAdminResorts) {
         $adminClasses[] = 'admin-folio';
         $adminClasses[] = 'admin-resorts';
+    } elseif ($isAdminBuildings) {
+        $adminClasses[] = 'admin-folio';
+        $adminClasses[] = 'admin-buildings';
+    } elseif ($isAdminRoomTypes) {
+        $adminClasses[] = 'admin-folio';
+        $adminClasses[] = 'admin-room-types';
+    } elseif ($isAdminRooms) {
+        $adminClasses[] = 'admin-folio';
+        $adminClasses[] = 'admin-rooms';
+    } elseif ($isAdminPools) {
+        $adminClasses[] = 'admin-folio';
+        $adminClasses[] = 'admin-pools';
+    } elseif ($isAdminServices) {
+        $adminClasses[] = 'admin-folio';
+        $adminClasses[] = 'admin-services';
+    } elseif ($isAdminPricelist) {
+        $adminClasses[] = 'admin-folio';
+        $adminClasses[] = 'admin-pricelist';
+    } elseif ($isAdminGallery) {
+        $adminClasses[] = 'admin-folio';
+        $adminClasses[] = 'admin-gallery';
+    } elseif ($isAdminPhotos) {
+        $adminClasses[] = 'admin-folio';
+        $adminClasses[] = 'admin-photos';
+    } elseif ($isAdminReviews) {
+        $adminClasses[] = 'admin-folio';
+        $adminClasses[] = 'admin-reviews';
+    } elseif ($isAdminLinks) {
+        $adminClasses[] = 'admin-folio';
+        $adminClasses[] = 'admin-links';
+    } elseif ($isAdminAccounts) {
+        $adminClasses[] = 'admin-folio';
+        $adminClasses[] = 'admin-accounts';
+    } elseif ($isAdminStaff) {
+        $adminClasses[] = 'admin-folio';
+        $adminClasses[] = 'admin-staff';
+    } elseif ($isAdminGuests) {
+        $adminClasses[] = 'admin-folio';
+        $adminClasses[] = 'admin-guests';
+    } elseif ($isAdminUsers) {
+        $adminClasses[] = 'admin-folio';
+        $adminClasses[] = 'admin-users';
+    } elseif ($isAdminPlatform) {
+        $adminClasses[] = 'admin-folio';
+        $adminClasses[] = 'admin-platform';
+    } elseif ($isAdminSettings) {
+        $adminClasses[] = 'admin-folio';
+        $adminClasses[] = 'admin-settings';
+    } elseif ($isAdminSearch) {
+        $adminClasses[] = 'admin-folio';
+        $adminClasses[] = 'admin-search';
     } elseif ($isAdminReservations) {
         $adminClasses[] = 'admin-folio';
         $adminClasses[] = 'admin-reservations';

@@ -14,7 +14,7 @@ $error = '';
 function load_by_ref(PDO $pdo, string $ref): ?array
 {
     $stmt = $pdo->prepare(
-        "SELECT v.*, g.first_name, g.last_name, g.email, g.phone,
+        "SELECT v.*, g.first_name, g.middle_name, g.last_name, g.email, g.phone,
                 (SELECT b.name FROM building b WHERE b.building_id = v.building_id) AS building_name,
                 (SELECT p.name FROM reservation_pool rp JOIN pool p ON p.pool_id = rp.pool_id WHERE rp.reservation_id = v.reservation_id LIMIT 1) AS pool_name,
                 (SELECT rc.cottage_name FROM reservation_cottage rc WHERE rc.reservation_id = v.reservation_id LIMIT 1) AS cottage_name
@@ -254,7 +254,7 @@ if ($justBooked) {
   <section class="panel">
     <h2>Details</h2>
     <dl class="facts">
-      <dt>Guest</dt><dd><?= h(format_name_inv((string)$res['last_name'], (string)$res['first_name'])) ?><br><span class="muted"><?= h($res['email']) ?><?= !empty($res['phone']) ? ', ' . h($res['phone']) : '' ?></span></dd>
+      <dt>Guest</dt><dd><?= h(format_name_inv((string)$res['last_name'], (string)$res['first_name'], (string)($res['middle_name'] ?? ''))) ?><br><span class="muted"><?= h($res['email']) ?><?= !empty($res['phone']) ? ', ' . h($res['phone']) : '' ?></span></dd>
       <dt>Resort</dt><dd><a href="<?= h(ru('landing.php')) ?>"><?= h($config['resort']) ?></a><?php if (!empty($resort['location'])): ?><br><span class="muted"><?= h($resort['location']) ?></span><?php endif; ?></dd>
       <dt>Booked</dt><dd><strong><?= h(scope_label($res)) ?></strong></dd>
       <?php if (!empty($res['trip_code'])): ?><dt>Trip</dt><dd><a href="trip_booked.php?code=<?= urlencode($res['trip_code']) ?>"><?= h($res['trip_code']) ?></a></dd><?php endif; ?>
@@ -274,17 +274,71 @@ if ($justBooked) {
   </section>
 
   <section class="panel">
-    <h2>Payment</h2>
+    <h2>Payment &amp; Billing Breakdown</h2>
+    <?php
+      $grossAmt     = reservation_gross_subtotal($pdo, $id);
+      $totalPax     = max(1, (int)$res['num_guests']);
+      $isSeniorClaim = (int)($res['has_senior_claim'] ?? 0) === 1 || in_array($res['discount_type'] ?? '', ['Senior', 'PWD'], true);
+      $hasDisc      = !empty($res['discount_type']) || $isSeniorClaim;
+      $discSt       = (string)($res['discount_status'] ?? '');
+      $srVerSt      = (string)($res['senior_verification_status'] ?? '');
+      $discPct      = rtrim(rtrim(number_format((float)($res['discount_percent'] ?? 0), 2, '.', ''), '0'), '.');
+      $discAmt      = (float)($res['discount_amount'] ?? 0);
+      $claimedSrCnt = max(1, min($totalPax, (int)($res['claimed_senior_count'] ?: 1)));
+      $verifiedSrCnt = ($discSt === 'Approved' || $srVerSt === 'verified')
+          ? max(1, min($totalPax, (int)($res['verified_senior_count'] ?: $claimedSrCnt)))
+          : 0;
+      $raCalc = calculate_ra9994_discount($grossAmt, $totalPax, $verifiedSrCnt > 0 ? $verifiedSrCnt : $claimedSrCnt, $paid);
+      $overpayAmt = (float)($res['overpayment_amount'] ?? 0);
+      if ($overpayAmt <= 0.004 && $paid > (float)$res['total_amount'] + 0.004) {
+          $overpayAmt = round($paid - (float)$res['total_amount'], 2);
+      }
+    ?>
     <dl class="facts totals">
+      <?php if ($hasDisc): ?>
+        <dt>Regular price (12% VAT-incl.)</dt><dd class="num"><?= h(money($grossAmt)) ?></dd>
+        <?php if ($isSeniorClaim): ?>
+          <dt>VAT-Exempt Sales <small class="muted">(<?= $verifiedSrCnt > 0 ? $verifiedSrCnt : $claimedSrCnt ?>/<?= $totalPax ?> pax senior base)</small></dt>
+          <dd class="num"><?= h(money($raCalc['vat_exempt_sales'])) ?></dd>
+          <dt>Less: 20% Senior / PWD Discount</dt>
+          <dd class="num">−<?= h(money($raCalc['senior_discount_amount'])) ?></dd>
+          <dt>Senior / PWD Net Share <small class="muted">(VAT-exempt)</small></dt>
+          <dd class="num"><?= h(money($raCalc['senior_share_total'])) ?></dd>
+          <?php if ($raCalc['regular_guest_count'] > 0): ?>
+            <dt>VATable Sales <small class="muted">(<?= $raCalc['regular_guest_count'] ?>/<?= $totalPax ?> regular companions)</small></dt>
+            <dd class="num"><?= h(money($raCalc['vatable_sales'])) ?></dd>
+            <dt>12% VAT <small class="muted">(regular companions)</small></dt>
+            <dd class="num"><?= h(money($raCalc['vat_amount'])) ?></dd>
+          <?php endif; ?>
+        <?php endif; ?>
+        <dt>
+          <?= h($res['discount_label'] ?: ($res['discount_type'] . ' (' . $discPct . '%)')) ?>
+          <?php if ($discSt === 'Approved'): ?>
+            <span class="badge confirmed">Verified</span>
+          <?php elseif ($discSt === 'Rejected'): ?>
+            <span class="badge cancelled">Rejected</span>
+          <?php else: ?>
+            <span class="badge pending">Verify over the counter upon arrival</span>
+          <?php endif; ?>
+          <?php if (!empty($res['discount_note'])): ?>
+            <br><small class="muted"><?= h($res['discount_note']) ?></small>
+          <?php endif; ?>
+        </dt>
+        <dd class="num"><?= $discSt === 'Approved' ? '−' . h(money($discAmt)) : '<span class="muted">Est. −' . h(money($raCalc['total_savings'])) . '</span>' ?></dd>
+      <?php endif; ?>
       <dt>Total</dt><dd class="num strong"><?= h(money($res['total_amount'])) ?></dd>
       <?php if ($paySum['required_downpayment'] > 0.004): ?>
-        <dt>Required downpayment</dt><dd class="num"><?= h(money($paySum['required_downpayment'])) ?><?= $paySum['downpayment_met'] ? ' <span class="badge confirmed">Paid</span>' : '' ?></dd>
+        <dt>Required downpayment <small class="muted">(regular rate)</small></dt><dd class="num"><?= h(money($paySum['required_downpayment'])) ?><?= $paySum['downpayment_met'] ? ' <span class="badge confirmed">Paid</span>' : '' ?></dd>
       <?php endif; ?>
       <dt>Paid (verified)</dt><dd class="num"><?= h(money($paid)) ?></dd>
       <?php if ($paySum['pending'] > 0.004): ?>
         <dt>Pending verification</dt><dd class="num"><?= h(money($paySum['pending'])) ?></dd>
       <?php endif; ?>
       <dt><?= $balance > 0.004 ? 'Balance due' : 'Balance' ?></dt><dd class="num strong"><?= h(money(max(0, $balance))) ?></dd>
+      <?php if ($overpayAmt > 0.004): ?>
+        <dt style="color:#b45309;font-weight:700">Overpayment (Refund / Credit)</dt>
+        <dd class="num strong" style="color:#b45309"><?= h(money($overpayAmt)) ?> <span class="badge confirmed"><?= h($res['overpayment_resolution'] ?: 'Cash Refund / Resort Credit at check-in') ?></span></dd>
+      <?php endif; ?>
     </dl>
     <?php if ($payments): ?>
       <h3 style="margin:16px 0 8px;font-size:14px">Payment history</h3>
@@ -333,13 +387,13 @@ if ($justBooked) {
         <tbody>
           <tr>
             <td>1</td>
-            <td><?= h(format_name_inv((string)$res['last_name'], (string)$res['first_name'])) ?> <span class="muted">(primary guest)</span></td>
+            <td><?= h(format_name_inv((string)$res['last_name'], (string)$res['first_name'], (string)($res['middle_name'] ?? ''))) ?> <span class="muted">(primary guest)</span></td>
             <td><?= h($res['booker_type'] ?? 'Adult') ?></td>
           </tr>
         <?php foreach ($companions as $i => $c): ?>
           <tr>
             <td><?= $i + 2 ?></td>
-            <td><?= h(format_name_inv((string)$c['last_name'], (string)$c['first_name'])) ?></td>
+            <td><?= h(format_name_inv((string)$c['last_name'], (string)$c['first_name'], (string)($c['middle_name'] ?? ''))) ?></td>
             <td><?= h($c['guest_type']) ?></td>
           </tr>
         <?php endforeach; ?>

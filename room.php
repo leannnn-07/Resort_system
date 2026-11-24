@@ -44,11 +44,11 @@ if ($isCottage) {
     $ent      = cottage_entrance_total($pdo, resort_id(), $adults, $children);
     $totalEst = round($rate + $ent['total'], 2);
     $free     = 0;
-    if (!$problems && $loggedIn) {
+    if (!$problems) {
         $ct   = cottage_target($pdo, $cottageId, $in);
         $free = $ct ? (int)$ct['free_qty'] : 0;
     }
-    $ok = !$problems && (!$loggedIn || $free > 0);
+    $ok = !$problems && $free > 0;
 
     $others = $pdo->prepare("SELECT price_item_id, item_name, price FROM price_item WHERE price_item_id <> ? AND resort_id = ? AND category = 'Cottage (day use)' AND archived_at IS NULL ORDER BY sort_order, price");
     $others->execute([$cottageId, resort_id()]);
@@ -97,7 +97,7 @@ if ($isCottage) {
       <p class="rd-price"><strong><?= h(money($rate)) ?></strong> <small><?= h($unit) ?></small></p>
       <p class="muted rd-sleeps">Day use · Up to <?= $cap ?> guests</p>
 
-      <form method="get" action="checkout.php" class="rd-form" data-room-form data-cap="<?= $cap ?>" data-live="<?= $loggedIn ? '1' : '0' ?>" data-self="<?= h(ru('room.php')) ?>">
+      <form method="get" action="checkout.php" class="rd-form" data-room-form data-cap="<?= $cap ?>" data-live="1" data-self="<?= h(ru('room.php')) ?>">
         <?= rhidden() ?>
         <input type="hidden" name="cottage" value="<?= $cottageId ?>" data-self-only>
         <input type="hidden" name="scope" value="Cottage">
@@ -113,15 +113,12 @@ if ($isCottage) {
 
         <?php if ($problems): ?>
           <div class="notice error rd-wide" role="alert"><?= h($problems[0]) ?></div>
-        <?php elseif ($loggedIn && $ok): ?>
+        <?php elseif ($ok): ?>
           <div class="rp-result rd-wide" role="status">
             <p class="rp-result-line"><strong><?= h($free <= 2 ? 'Only ' . plural($free, 'cottage') . ' left' : 'Available') ?></strong> on <?= h(fdate($in)) ?>.</p>
             <p class="muted">1 cottage · Day use · <?= h(plural($guests, 'guest')) ?><?= $ent['total'] > 0.004 ? ' (+ ' . h(money($ent['total'])) . ' entrance)' : '' ?></p>
             <p class="rp-total-line">Total <strong class="rp-total"><?= h(money($totalEst)) ?></strong></p>
           </div>
-        <?php elseif ($ok): ?>
-          <p class="rd-wide rp-total-line">Estimated total <strong class="rp-total"><?= h(money($totalEst)) ?></strong>
-            <small class="muted"><?= $ent['total'] > 0.004 ? 'includes ' . h(money($ent['total'])) . ' entrance' : 'day use cottage' ?></small></p>
         <?php else: ?>
           <div class="notice error rd-wide" role="alert">
             Sorry, <?= h($title) ?> is fully booked on <?= h(fdate($in)) ?>. Try another date or look at other cottages below.
@@ -207,13 +204,10 @@ $problems = validate_stay($in, $out, $adults, $children);
 $free = $n = 0;
 if (!$problems) {
     $n = nights($in, $out);
-    if ($loggedIn) {
-        $free = count(available_rooms($pdo, $in, $out, $id));
-    }
+    $free = count(available_rooms($pdo, $in, $out, $id));
 }
 $maxPick = min($free, (int)$config['max_rooms_per_booking']);
-// Logged-in guests can book only what is free; visitors are checked after they log in.
-$ok = !$problems && (!$loggedIn || ($free >= $need && $need <= $maxPick));
+$ok = !$problems && ($free >= $need && $need <= $maxPick);
 if (!$problems && $need > (int)$config['max_rooms_per_booking']) {
     $ok = false;
 }
@@ -265,7 +259,7 @@ site_start($type['type_name'], 'rooms', 'room-detail');
       <p class="rd-price"><strong><?= h(money($type['base_rate'])) ?></strong> <small>per <?= $noun ?> per night</small></p>
       <p class="muted rd-sleeps">Sleeps up to <?= $cap ?> per <?= $noun ?></p>
 
-      <form method="get" action="checkout.php" class="rd-form" data-stay data-room-form data-cap="<?= $cap ?>" data-live="<?= $loggedIn ? '1' : '0' ?>" data-self="<?= h(ru('room.php')) ?>">
+      <form method="get" action="checkout.php" class="rd-form" data-stay data-room-form data-cap="<?= $cap ?>" data-live="1" data-self="<?= h(ru('room.php')) ?>">
         <?= rhidden() ?>
         <input type="hidden" name="id" value="<?= $id ?>" data-self-only>
         <input type="hidden" name="type" value="<?= $id ?>">
@@ -283,15 +277,12 @@ site_start($type['type_name'], 'rooms', 'room-detail');
 
         <?php if ($problems): ?>
           <div class="notice error rd-wide" role="alert"><?= h($problems[0]) ?></div>
-        <?php elseif ($loggedIn && $ok): ?>
+        <?php elseif ($ok): ?>
           <div class="rp-result rd-wide" role="status">
             <p class="rp-result-line"><strong><?= h($free <= 3 ? 'Only ' . plural($free, $noun) . ' left' : 'Available') ?></strong> for <?= h(fdate($in)) ?> to <?= h(fdate($out)) ?>.</p>
             <p class="muted"><?= h(plural($need, $noun)) ?> for <?= h(plural($n, 'night')) ?> · <?= h(plural($guests, 'guest')) ?></p>
             <p class="rp-total-line">Total <strong class="rp-total"><?= h(money((float)$type['base_rate'] * $n * $need)) ?></strong></p>
           </div>
-        <?php elseif ($ok): ?>
-          <p class="rd-wide rp-total-line">Estimated total <strong class="rp-total"><?= h(money((float)$type['base_rate'] * $n * $need)) ?></strong>
-            <small class="muted">for <?= h(plural($need, $noun)) ?>, <?= h(plural($n, 'night')) ?></small></p>
         <?php else: ?>
           <div class="notice error rd-wide" role="alert">
             <?php if ($need > (int)$config['max_rooms_per_booking']): ?>

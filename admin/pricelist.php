@@ -4,7 +4,7 @@ require __DIR__ . '/../includes/crud.php';
 crud_page($pdo, [
     'title' => 'Price list', 'singular' => 'Price', 'active' => 'pricelist', 'scoped' => true, 'archive' => true,
     'table' => 'price_item', 'pk' => 'price_item_id', 'order' => 'category, sort_order, item_name',
-    'before_panel' => '<nav class="seg" aria-label="Pricing and add-ons"><a href="pricelist.php" aria-current="page">Cottages &amp; Entrance</a><a href="services.php">Add-ons</a></nav>',
+    'before_panel' => '<nav class="seg" aria-label="Pricing and add-ons"><a href="pricelist.php" aria-current="page">Cottages &amp; Entrance</a><a href="services.php">Add-ons</a><a href="discounts.php">Special discounts</a></nav>',
     'fields' => [
         ['name' => 'category',   'label' => 'Group',      'type' => 'select', 'required' => true, 'options' => ['Entrance fee', 'Cottage (day use)']],
         ['name' => 'item_name',  'label' => 'Name',       'type' => 'text',   'required' => true],

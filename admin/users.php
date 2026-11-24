@@ -21,11 +21,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $live = $pdo->prepare('SELECT 1 FROM guest WHERE guest_id = ? AND archived_at IS NULL');
             $live->execute([$gid]);
             if (!$live->fetchColumn()) { throw new RuntimeException('Restore this account before editing it.'); }
-            $first = trim((string)($_POST['first_name'] ?? ''));
-            $last  = trim((string)($_POST['last_name'] ?? ''));
-            $email = trim((string)($_POST['email'] ?? ''));
-            $phone = trim((string)($_POST['phone'] ?? ''));
-            if ($first === '' || $last === '') {
+            $first  = trim((string)($_POST['first_name'] ?? ''));
+            $middle = trim((string)($_POST['middle_name'] ?? ''));
+            $last   = trim((string)($_POST['last_name'] ?? ''));
+            $email  = trim((string)($_POST['email'] ?? ''));
+            $phone  = trim((string)($_POST['phone'] ?? ''));
+            if ($first === '' || $last === '' || mb_strlen($first) > 60 || mb_strlen($last) > 60 || mb_strlen($middle) > 60) {
                 throw new RuntimeException('First and last name are required.');
             }
             if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
@@ -33,10 +34,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             // Changing the email means it is no longer the one they proved with a code.
             $pdo->prepare(
-                'UPDATE guest SET first_name = ?, last_name = ?, phone = ?,
+                'UPDATE guest SET first_name = ?, middle_name = ?, last_name = ?, phone = ?,
                         email_verified_at = IF(email = ?, email_verified_at, NULL), email = ?
                   WHERE guest_id = ?'
-            )->execute([$first, $last, $phone === '' ? null : $phone, $email, $email, $gid]);
+            )->execute([$first, $middle === '' ? null : $middle, $last, $phone === '' ? null : $phone, $email, $email, $gid]);
             flash('Changes saved.');
         } elseif ($action === 'archive') {
             $pdo->prepare('UPDATE guest SET archived_at = NOW() WHERE guest_id = ? AND archived_at IS NULL')->execute([$gid]);
@@ -56,8 +57,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     if ($failed && $action === 'save') {   // reopen the pop-up with what was typed
         $_SESSION['crud_old'][$self] = ['id' => $gid, 'values' => [
-            'first_name' => (string)($_POST['first_name'] ?? ''), 'last_name' => (string)($_POST['last_name'] ?? ''),
-            'email' => (string)($_POST['email'] ?? ''), 'phone' => (string)($_POST['phone'] ?? ''),
+            'first_name'  => (string)($_POST['first_name'] ?? ''),
+            'middle_name' => (string)($_POST['middle_name'] ?? ''),
+            'last_name'   => (string)($_POST['last_name'] ?? ''),
+            'email'       => (string)($_POST['email'] ?? ''),
+            'phone'       => (string)($_POST['phone'] ?? ''),
         ]];
     }
     redirect($self);
@@ -67,11 +71,11 @@ $q = trim((string)($_GET['q'] ?? ''));
 $where  = 'g.password_hash IS NOT NULL AND g.archived_at IS NULL';
 $params = [];
 if ($q !== '') {
-    $where .= " AND (CONCAT(g.first_name, ' ', g.last_name) LIKE ? OR g.email LIKE ?)";
+    $where .= " AND (CONCAT_WS(' ', g.first_name, g.middle_name, g.last_name) LIKE ? OR g.email LIKE ?)";
     $params = ["%$q%", "%$q%"];
 }
 $stmt = $pdo->prepare(
-    "SELECT g.guest_id, g.first_name, g.last_name, g.email, g.phone, g.email_verified_at, g.created_at, g.login_enabled, g.archived_at,
+    "SELECT g.guest_id, g.first_name, g.middle_name, g.last_name, g.email, g.phone, g.email_verified_at, g.created_at, g.login_enabled, g.archived_at,
             (SELECT COUNT(*) FROM reservation v WHERE v.guest_id = g.guest_id) AS bookings
        FROM guest g WHERE $where ORDER BY g.created_at DESC, g.guest_id DESC LIMIT 500"
 );
@@ -81,8 +85,11 @@ $rows = $stmt->fetchAll();
 $records = [];
 foreach ($rows as $r) {
     $records[(int)$r['guest_id']] = [
-        'first_name' => (string)$r['first_name'], 'last_name' => (string)$r['last_name'],
-        'email' => (string)$r['email'], 'phone' => (string)($r['phone'] ?? ''),
+        'first_name'  => (string)$r['first_name'],
+        'middle_name' => (string)($r['middle_name'] ?? ''),
+        'last_name'   => (string)$r['last_name'],
+        'email'       => (string)$r['email'],
+        'phone'       => (string)($r['phone'] ?? ''),
     ];
 }
 $autoOpen = $_SESSION['crud_old'][$self] ?? null;
@@ -108,7 +115,7 @@ $qs = $q !== '' ? 'q=' . urlencode($q) : '';
       <tbody>
       <?php foreach ($rows as $r): ?>
         <tr>
-          <td><strong><?= h(format_name_inv((string)$r['first_name'], (string)$r['last_name'])) ?></strong></td>
+          <td><strong><?= h(format_name_inv((string)$r['last_name'], (string)$r['first_name'], (string)($r['middle_name'] ?? ''))) ?></strong></td>
           <td><?= h($r['email']) ?></td>
           <td class="nowrap sub"><?= h((string)($r['phone'] ?? '')) !== '' ? h((string)$r['phone']) : '<span class="muted">–</span>' ?></td>
           <td class="nowrap"><span class="badge <?= $r['email_verified_at'] ? 'yes' : 'no' ?>"><?= $r['email_verified_at'] ? 'Yes' : 'No' ?></span></td>
@@ -152,10 +159,11 @@ $qs = $q !== '' ? 'q=' . urlencode($q) : '';
       <?= csrf_field() ?>
       <input type="hidden" name="action" value="save">
       <input type="hidden" name="guest_id" value="" data-record-id>
-      <label><span>First name</span><input type="text" name="first_name" placeholder="e.g. Maria" required></label>
       <label><span>Last name</span><input type="text" name="last_name" placeholder="e.g. Santos" required></label>
-      <label><span>Email</span><input type="email" name="email" placeholder="e.g. maria@example.com" required></label>
+      <label><span>First name</span><input type="text" name="first_name" placeholder="e.g. Maria" required></label>
+      <label><span>Middle name <small class="muted">(optional)</small></span><input type="text" name="middle_name" placeholder="e.g. Cruz"></label>
       <label><span>Phone</span><input type="text" name="phone" placeholder="e.g. 0917 123 4567"></label>
+      <label class="wide"><span>Email</span><input type="email" name="email" placeholder="e.g. maria@example.com" required></label>
       <div class="modal-actions wide"><button class="btn" type="button" data-modal-close>Cancel</button><button class="btn primary" type="submit">Save user</button></div>
     </form>
   </div>

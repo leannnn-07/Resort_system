@@ -81,6 +81,20 @@ $types['prices'] = [
     'search' => 't.item_name LIKE ? OR t.category LIKE ? OR t.note LIKE ?',
     'n'      => 3,
 ];
+$types['discounts'] = [
+    'label'  => 'Special discounts',
+    'badge'  => 'Discount',
+    'one'    => 'special discount',
+    'table'  => 'resort_discount',
+    'pk'     => 'discount_id',
+    'scope'  => $isSuper ? '1=1' : "t.resort_id = $RID",
+    'select' => "t.discount_id AS id, t.title AS name,
+                 CONCAT_WS(' · ', CONCAT(TRIM(TRAILING '.' FROM TRIM(TRAILING '0' FROM t.percent_off)), '% off'), NULLIF(t.note, '')) AS detail,
+                 COALESCE(r.name, 'All resorts') AS resort_name, t.archived_at",
+    'from'   => 'resort_discount t LEFT JOIN resort r ON r.resort_id = t.resort_id',
+    'search' => 't.title LIKE ? OR t.note LIKE ?',
+    'n'      => 2,
+];
 $types['buildings'] = [
     'label'  => 'Buildings',
     'badge'  => 'Building',

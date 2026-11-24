@@ -2,7 +2,6 @@
 require __DIR__ . '/includes/layout.php';
 require __DIR__ . '/includes/booking.php';
 require_resort($pdo);
-require_guest_to_book($pdo);   // booking a whole pool, building or resort needs an account
 
 $asked    = isset($_GET['check_in']);
 $in       = $asked ? (string)($_GET['check_in'] ?? '') : add_days(today(), 1);

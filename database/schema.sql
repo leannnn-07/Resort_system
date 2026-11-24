@@ -41,10 +41,11 @@ CREATE TABLE resort (
 ) ENGINE=InnoDB;
 
 CREATE TABLE guest (
-  guest_id   INT AUTO_INCREMENT PRIMARY KEY,
-  first_name VARCHAR(60)  NOT NULL,
-  last_name  VARCHAR(60)  NOT NULL,
-  email      VARCHAR(120) NOT NULL,
+  guest_id    INT AUTO_INCREMENT PRIMARY KEY,
+  first_name  VARCHAR(60)  NOT NULL,
+  middle_name VARCHAR(60)  NULL,
+  last_name   VARCHAR(60)  NOT NULL,
+  email       VARCHAR(120) NOT NULL,
   phone      VARCHAR(30),
   address    VARCHAR(200),
   id_type    VARCHAR(40) NULL,      -- Passport, Driver’s licence, ... or 'None presented'
@@ -271,6 +272,7 @@ CREATE TABLE reservation_companion (
   reservation_id INT NOT NULL,
   guest_type     VARCHAR(10) NOT NULL,
   first_name     VARCHAR(60) NOT NULL,
+  middle_name    VARCHAR(60) NULL,
   last_name      VARCHAR(60) NOT NULL,
   age            INT NULL,                       -- no longer asked; kept only so old bookings keep their value
   CONSTRAINT ck_rc_type CHECK (guest_type IN ('Adult','Senior','Child')),
@@ -413,7 +415,6 @@ INSERT INTO service (resort_id, service_name, category, unit_price) VALUES
 INSERT INTO price_item (resort_id, category, item_name, note, unit, price, sort_order) VALUES
  (1, 'Entrance fee', 'Adult', NULL, 'per person', 100, 1),
  (1, 'Entrance fee', 'Child (4 to 12 years)', NULL, 'per person', 50, 2),
- (1, 'Entrance fee', 'Senior citizen / PWD', 'With a valid ID', 'per person', 80, 3),
  (1, 'Cottage (day use)', 'Beach Cottage', 'Daytime use, seats 8', 'per cottage', 1000, 1),
  (1, 'Cottage (day use)', 'Seaside Table', 'Daytime use, seats 4', 'per table', 600, 2);
 INSERT INTO staff (resort_id, full_name, role, access, email, password_hash) VALUES
@@ -460,7 +461,6 @@ INSERT INTO service (resort_id, service_name, category, unit_price) VALUES
 INSERT INTO price_item (resort_id, category, item_name, note, unit, price, sort_order) VALUES
  (2, 'Entrance fee', 'Adult', NULL, 'per person', 150, 1),
  (2, 'Entrance fee', 'Child (4 to 12 years)', NULL, 'per person', 100, 2),
- (2, 'Entrance fee', 'Senior citizen / PWD', 'With a valid ID', 'per person', 120, 3),
  (2, 'Cottage (day use)', 'Beach Umbrella', 'Daytime use', 'per umbrella', 300, 1),
  (2, 'Cottage (day use)', 'Cottage', 'Daytime use, seats up to 8', 'per cottage', 1200, 2),
  (2, 'Cottage (day use)', 'Gazebo', 'Daytime use, seats up to 20', 'per gazebo', 2800, 3);
@@ -502,7 +502,6 @@ INSERT INTO service (resort_id, service_name, category, unit_price) VALUES
 INSERT INTO price_item (resort_id, category, item_name, note, unit, price, sort_order) VALUES
  (3, 'Entrance fee', 'Adult', NULL, 'per person', 100, 1),
  (3, 'Entrance fee', 'Child (4 to 12 years)', NULL, 'per person', 70, 2),
- (3, 'Entrance fee', 'Senior citizen / PWD', 'With a valid ID', 'per person', 80, 3),
  (3, 'Cottage (day use)', 'Small Cottage', 'Daytime use, seats 6', 'per cottage', 800, 1),
  (3, 'Cottage (day use)', 'Big Cottage', 'Daytime use, seats 12', 'per cottage', 1500, 2),
  (3, 'Cottage (day use)', 'Function Hall (with videoke)', 'Daytime use, seats up to 80', 'per hall', 6000, 3);
@@ -542,7 +541,6 @@ INSERT INTO service (resort_id, service_name, category, unit_price) VALUES
 INSERT INTO price_item (resort_id, category, item_name, note, unit, price, sort_order) VALUES
  (4, 'Entrance fee', 'Adult', NULL, 'per person', 100, 1),
  (4, 'Entrance fee', 'Child (4 to 12 years)', NULL, 'per person', 50, 2),
- (4, 'Entrance fee', 'Senior citizen / PWD', 'With a valid ID', 'per person', 80, 3),
  (4, 'Cottage (day use)', 'Picnic Hut', 'Daytime use, seats 6', 'per hut', 1000, 1),
  (4, 'Cottage (day use)', 'Spring Pool Cottage (day use)', 'Daytime use, up to 4 guests', 'per cottage', 2500, 2);
 INSERT INTO staff (resort_id, full_name, role, access, email, password_hash) VALUES
@@ -592,7 +590,6 @@ INSERT INTO service (resort_id, service_name, category, unit_price) VALUES
 INSERT INTO price_item (resort_id, category, item_name, note, unit, price, sort_order) VALUES
  (5, 'Entrance fee', 'Adult', NULL, 'per person', 300, 1),
  (5, 'Entrance fee', 'Child (4 to 12 years)', NULL, 'per person', 150, 2),
- (5, 'Entrance fee', 'Senior citizen / PWD', 'With a valid ID', 'per person', 240, 3),
  (5, 'Cottage (day use)', 'Beach Hut', 'Daytime use, seats 6', 'per hut', 2000, 1),
  (5, 'Cottage (day use)', 'Family Hut', 'Daytime use, seats up to 15', 'per hut', 4000, 2);
 INSERT INTO staff (resort_id, full_name, role, access, email, password_hash) VALUES
@@ -603,10 +600,10 @@ INSERT INTO staff (resort_id, full_name, role, access, email, password_hash) VAL
 INSERT INTO staff (resort_id, full_name, role, access, email, password_hash) VALUES
  (NULL, 'Platform Admin', 'Super admin', 'Admin', 'platform@resort.test', '$2y$10$gXlAx/vThgoSNjW5SHEiZ.99t5.Oo2QmoGy5SRo9qgczccemKYmuG');
 
-INSERT INTO guest (first_name, last_name, email, phone, address, id_type, id_number) VALUES   -- sample numbers are plain text; run php database/encrypt_ids.php to encrypt them
- ('Liza',  'Mendoza',    'liza@example.com',  '+63 917 000 0001', 'Zamboanga City', 'Driver’s licence', 'DL-1002345'),
- ('Mark',  'Villanueva', 'mark@example.com',  '+63 917 000 0002', 'Pagadian City',     'Passport',         'PP-5567788'),
- ('Sofia', 'Garcia',     'sofia@example.com', '+63 917 000 0003', 'Dipolog City',      'Driver’s licence', 'DL-9981122');
+INSERT INTO guest (first_name, last_name, email, phone, address) VALUES
+ ('Liza',  'Mendoza',    'liza@example.com',  '+63 917 000 0001', 'Zamboanga City'),
+ ('Mark',  'Villanueva', 'mark@example.com',  '+63 917 000 0002', 'Pagadian City'),
+ ('Sofia', 'Garcia',     'sofia@example.com', '+63 917 000 0003', 'Dipolog City');
 
 -- Sample booking at Vista del Mar Resort: Family Casita FC1, 3 nights starting tomorrow (lookup with DEMO2345 + liza@example.com)
 INSERT INTO reservation (resort_id, booking_ref, guest_id, staff_id, booking_date, check_in_date, check_out_date,

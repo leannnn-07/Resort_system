@@ -272,6 +272,87 @@ try {
     error_log('[resort] cottage booking schema check failed: ' . $e->getMessage());
 }
 
+// Over-the-counter discounts off original price (Senior / PWD pro-rated share + Admin / Superadmin special offers; verified & approved over the counter by Staff/Admin/Superadmin, with NO ID photo upload or ID number storage).
+try {
+    // Remove separate Senior / PWD price list rows so discounts always come from the original price.
+    $pdo->exec("DELETE FROM price_item WHERE category = 'Entrance fee' AND (item_name LIKE '%Senior%' OR item_name LIKE '%PWD%')");
+    // Do not store or record any guest valid ID type or ID number in the guest table.
+    $pdo->exec('UPDATE guest SET id_type = NULL, id_number = NULL WHERE id_type IS NOT NULL OR id_number IS NOT NULL');
+
+    // Optional middle_name on guest and reservation_companion tables.
+    $midCols = $pdo->query(
+        "SELECT CONCAT(table_name, '.', column_name) FROM information_schema.columns
+          WHERE table_schema = DATABASE()
+            AND table_name IN ('guest', 'reservation_companion')
+            AND column_name = 'middle_name'"
+    )->fetchAll(PDO::FETCH_COLUMN);
+    if (!in_array('guest.middle_name', $midCols, true)) {
+        $pdo->exec('ALTER TABLE guest ADD COLUMN middle_name VARCHAR(60) NULL AFTER first_name');
+    }
+    if (!in_array('reservation_companion.middle_name', $midCols, true)) {
+        $pdo->exec('ALTER TABLE reservation_companion ADD COLUMN middle_name VARCHAR(60) NULL AFTER first_name');
+    }
+
+    $pdo->exec('CREATE TABLE IF NOT EXISTS resort_discount (
+        discount_id   INT AUTO_INCREMENT PRIMARY KEY,
+        resort_id     INT NULL,
+        title         VARCHAR(100) NOT NULL,
+        percent_off   DECIMAL(5,2) NOT NULL DEFAULT 10.00,
+        start_date    DATE NULL,
+        end_date      DATE NULL,
+        is_active     TINYINT(1) NOT NULL DEFAULT 1,
+        note          VARCHAR(200) NULL,
+        created_by    INT NULL,
+        created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        archived_at   DATETIME NULL,
+        INDEX idx_rd_resort (resort_id, is_active),
+        CONSTRAINT fk_rd_resort FOREIGN KEY (resort_id) REFERENCES resort(resort_id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+
+    $discCols = $pdo->query(
+        "SELECT column_name FROM information_schema.columns
+          WHERE table_schema = DATABASE() AND table_name = 'reservation'
+            AND column_name IN (
+              'discount_type','discount_label','discount_percent','discount_amount','discount_status','discount_id_image','discount_offer_id','discount_verified_at','discount_verified_by','discount_approver_name','discount_note',
+              'has_senior_claim','claimed_senior_count','verified_senior_count','senior_verification_status','senior_full_name','osca_or_gov_id_number','id_image_path','senior_physical_present','vat_exempt_sales','vatable_sales','vat_amount','senior_discount_amount','overpayment_amount','overpayment_resolution'
+            )"
+    )->fetchAll(PDO::FETCH_COLUMN);
+    $addCol = function (string $col, string $def) use ($pdo, $discCols): void {
+        if (!in_array($col, $discCols, true)) {
+            $pdo->exec("ALTER TABLE reservation ADD COLUMN $col $def");
+        }
+    };
+    $addCol('discount_type', 'VARCHAR(20) NULL AFTER total_amount');
+    $addCol('discount_label', 'VARCHAR(120) NULL AFTER discount_type');
+    $addCol('discount_percent', 'DECIMAL(5,2) NOT NULL DEFAULT 0.00 AFTER discount_label');
+    $addCol('discount_amount', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER discount_percent');
+    $addCol('discount_status', 'VARCHAR(20) NULL AFTER discount_amount');
+    $addCol('discount_id_image', 'VARCHAR(255) NULL AFTER discount_status');
+    $addCol('discount_offer_id', 'INT NULL AFTER discount_id_image');
+    $addCol('discount_verified_at', 'DATETIME NULL AFTER discount_offer_id');
+    $addCol('discount_verified_by', 'INT NULL AFTER discount_verified_at');
+    $addCol('discount_approver_name', 'VARCHAR(120) NULL AFTER discount_verified_by');
+    $addCol('discount_note', 'VARCHAR(255) NULL AFTER discount_approver_name');
+    $addCol('has_senior_claim', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER discount_note');
+    $addCol('claimed_senior_count', 'INT NOT NULL DEFAULT 0 AFTER has_senior_claim');
+    $addCol('verified_senior_count', 'INT NOT NULL DEFAULT 0 AFTER claimed_senior_count');
+    $addCol('senior_verification_status', 'VARCHAR(20) NULL AFTER verified_senior_count');
+    $addCol('senior_full_name', 'VARCHAR(255) NULL AFTER senior_verification_status');
+    $addCol('osca_or_gov_id_number', 'VARCHAR(160) NULL AFTER senior_full_name');
+    $addCol('id_image_path', 'VARCHAR(255) NULL AFTER osca_or_gov_id_number');
+    $addCol('senior_physical_present', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER id_image_path');
+    $addCol('vat_exempt_sales', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER senior_physical_present');
+    $addCol('vatable_sales', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER vat_exempt_sales');
+    $addCol('vat_amount', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER vatable_sales');
+    $addCol('senior_discount_amount', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER vat_amount');
+    $addCol('overpayment_amount', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER senior_discount_amount');
+    $addCol('overpayment_resolution', 'VARCHAR(30) NULL AFTER overpayment_amount');
+    // Ensure no ID image paths or ID numbers are ever stored in reservation rows.
+    $pdo->exec('UPDATE reservation SET discount_id_image = NULL, id_image_path = NULL, osca_or_gov_id_number = NULL WHERE discount_id_image IS NOT NULL OR id_image_path IS NOT NULL OR osca_or_gov_id_number IS NOT NULL');
+} catch (Throwable $e) {
+    error_log('[resort] discount schema check failed: ' . $e->getMessage());
+}
+
 /** SQL for "this account may sign in": has a password, login not switched off, not archived. */
 const STAFF_CAN_LOGIN = 'password_hash IS NOT NULL AND login_enabled = 1 AND archived_at IS NULL';
 const GUEST_CAN_LOGIN = 'password_hash IS NOT NULL AND login_enabled = 1 AND archived_at IS NULL';
@@ -514,19 +595,180 @@ function add_days(string $date, int $days): string
 }
 
 // ---------- Money helpers ----------
-/** Rebuild reservation.total_amount = rooms x nights + pools x days + cottages/entrance + services. */
-function recalc_total(PDO $pdo, int $reservationId): void
+/** Raw subtotal before any approved discount = rooms x nights + pools x days + cottages/entrance + services. */
+function reservation_gross_subtotal(PDO $pdo, int $reservationId): float
 {
-    $pdo->prepare(
-        'UPDATE reservation r SET r.total_amount =
+    $stmt = $pdo->prepare(
+        'SELECT
             (SELECT COALESCE(SUM(rr.rate_applied), 0) FROM reservation_room rr WHERE rr.reservation_id = r.reservation_id)
               * DATEDIFF(r.check_out_date, r.check_in_date)
           + (SELECT COALESCE(SUM(rp.rate_applied), 0) FROM reservation_pool rp WHERE rp.reservation_id = r.reservation_id)
               * DATEDIFF(r.check_out_date, r.check_in_date)
           + (SELECT COALESCE(SUM(rc.cottage_rate * rc.quantity + rc.entrance_total), 0) FROM reservation_cottage rc WHERE rc.reservation_id = r.reservation_id)
           + (SELECT COALESCE(SUM(rs.price_charged), 0) FROM reservation_service rs WHERE rs.reservation_id = r.reservation_id)
-         WHERE r.reservation_id = ?'
-    )->execute([$reservationId]);
+          FROM reservation r WHERE r.reservation_id = ?'
+    );
+    $stmt->execute([$reservationId]);
+    return round(max(0.0, (float)$stmt->fetchColumn()), 2);
+}
+
+/**
+ * Philippine RA 9994 & BIR RR 7-2010 Pro-Rated Discount & VAT Split Calculator.
+ * Regular rate is 12% VAT-inclusive. Even if the senior citizen is the primary booker/payor,
+ * the 20% discount + 12% VAT exemption applies strictly to the personal pro-rated share of verified seniors.
+ *
+ * Formulas:
+ *   VAT_Exclusive_Total   = Regular_Rate / 1.12
+ *   Per_Pax_Base_Share    = VAT_Exclusive_Total / Total_Guests_In_Room
+ *   Senior_Share_Total    = (Per_Pax_Base_Share * 0.80) * Verified_Senior_Count
+ *   Regular_Share_Total   = (Per_Pax_Base_Share * 1.12) * Regular_Guest_Count
+ *   Final_Discounted_Total = Senior_Share_Total + Regular_Share_Total
+ */
+function calculate_ra9994_discount(
+    float $regularTotal,
+    int $totalGuests,
+    int $verifiedSeniorCount,
+    float $downpaymentPaid = 0.0
+): array {
+    $regularTotal = round(max(0.0, $regularTotal), 2);
+    $totalGuests  = max(1, $totalGuests);
+    $seniors      = max(0, min($totalGuests, $verifiedSeniorCount));
+    $regularPax   = $totalGuests - $seniors;
+
+    $vatExclusiveTotal = $regularTotal / 1.12;
+    $perPaxBaseShare   = $vatExclusiveTotal / $totalGuests;
+
+    // Senior share: VAT-exempt base share minus 20% statutory discount
+    $seniorBaseShare      = $perPaxBaseShare * $seniors;
+    $seniorDiscountAmount = $seniorBaseShare * 0.20;
+    $seniorShareTotal     = $seniorBaseShare * 0.80; // VAT-Exempt Sales billed
+
+    // Regular companion share: VAT-exclusive base + 12% VAT
+    $vatableSales      = $perPaxBaseShare * $regularPax;
+    $vatAmount         = $vatableSales * 0.12;
+    $regularShareTotal = $perPaxBaseShare * 1.12 * $regularPax;
+
+    $finalDiscountedTotal = round($seniorShareTotal + $regularShareTotal, 2);
+    $totalSavingsFromReg  = round(max(0.0, $regularTotal - $finalDiscountedTotal), 2);
+    $rawBalance           = round($finalDiscountedTotal - $downpaymentPaid, 2);
+    $remainingBalance     = max(0.0, $rawBalance);
+    $overpaymentAmount    = $rawBalance < -0.004 ? round(abs($rawBalance), 2) : 0.0;
+
+    return [
+        'regular_total'          => $regularTotal,
+        'total_guests'           => $totalGuests,
+        'verified_senior_count'  => $seniors,
+        'regular_guest_count'    => $regularPax,
+        'vat_exclusive_total'    => round($vatExclusiveTotal, 2),
+        'per_pax_base_share'     => round($perPaxBaseShare, 2),
+        'vat_exempt_sales'       => round($seniorBaseShare, 2),
+        'senior_discount_amount' => round($seniorDiscountAmount, 2),
+        'senior_share_total'     => round($seniorShareTotal, 2),
+        'vatable_sales'          => round($vatableSales, 2),
+        'vat_amount'             => round($vatAmount, 2),
+        'regular_share_total'    => round($regularShareTotal, 2),
+        'final_discounted_total' => $finalDiscountedTotal,
+        'total_savings'          => $totalSavingsFromReg,
+        'downpayment_paid'       => round($downpaymentPaid, 2),
+        'raw_balance'            => $rawBalance,
+        'remaining_balance'      => $remainingBalance,
+        'overpayment_amount'     => $overpaymentAmount,
+        'needs_refund_or_credit' => $overpaymentAmount > 0.004,
+    ];
+}
+
+/**
+ * Rebuild reservation.total_amount and BIR split-billing fields from original subtotal.
+ * Downpayment during online checkout is strictly calculated from the regular (non-discounted) total,
+ * and the discount is only deducted upon front-desk/admin verification.
+ */
+function recalc_total(PDO $pdo, int $reservationId): void
+{
+    $gross = reservation_gross_subtotal($pdo, $reservationId);
+    $st = $pdo->prepare(
+        'SELECT resort_id, num_adults, num_children, num_guests,
+                discount_type, discount_percent, discount_status,
+                has_senior_claim, claimed_senior_count, verified_senior_count, senior_verification_status,
+                required_downpayment
+           FROM reservation WHERE reservation_id = ?'
+    );
+    $st->execute([$reservationId]);
+    $row = $st->fetch() ?: [];
+
+    $totalGuests = max(1, (int)($row['num_guests'] ?? ((int)($row['num_adults'] ?? 1) + (int)($row['num_children'] ?? 0))));
+    $discType    = (string)($row['discount_type'] ?? '');
+    $discStatus  = (string)($row['discount_status'] ?? '');
+    $srStatus    = (string)($row['senior_verification_status'] ?? '');
+    $hasSrClaim  = (int)($row['has_senior_claim'] ?? 0) === 1 || in_array($discType, ['Senior', 'PWD'], true);
+    $paidSoFar   = amount_paid($pdo, $reservationId);
+
+    if ($hasSrClaim) {
+        $claimedCnt  = max(1, min($totalGuests, (int)($row['claimed_senior_count'] ?: 1)));
+        $verifiedCnt = ($srStatus === 'verified' || $discStatus === 'Approved')
+            ? max(1, min($totalGuests, (int)($row['verified_senior_count'] ?: $claimedCnt)))
+            : 0;
+        $calc = calculate_ra9994_discount($gross, $totalGuests, $verifiedCnt, $paidSoFar);
+        // Estimate for pending display
+        $estCalc = calculate_ra9994_discount($gross, $totalGuests, $claimedCnt, $paidSoFar);
+        $net     = $verifiedCnt > 0 ? $calc['final_discounted_total'] : $gross;
+        $discAmt = $verifiedCnt > 0 ? $calc['total_savings'] : $estCalc['total_savings'];
+
+        $pdo->prepare(
+            'UPDATE reservation
+                SET discount_amount = ?,
+                    vat_exempt_sales = ?,
+                    vatable_sales = ?,
+                    vat_amount = ?,
+                    senior_discount_amount = ?,
+                    overpayment_amount = ?,
+                    total_amount = ?
+              WHERE reservation_id = ?'
+        )->execute([
+            $discAmt,
+            $calc['vat_exempt_sales'],
+            $calc['vatable_sales'],
+            $calc['vat_amount'],
+            $calc['senior_discount_amount'],
+            $calc['overpayment_amount'],
+            $net,
+            $reservationId,
+        ]);
+    } else {
+        // Promotional / Special Offer percentage discount (or no discount)
+        $pct     = max(0.0, min(90.0, (float)($row['discount_percent'] ?? 0)));
+        $discAmt = ($pct > 0 && in_array($discStatus, ['Pending', 'Approved'], true))
+            ? round($gross * $pct / 100, 2)
+            : 0.0;
+        $net     = ($discStatus === 'Approved') ? round(max(0.0, $gross - $discAmt), 2) : $gross;
+        $vatable = round($net / 1.12, 2);
+        $vatAmt  = round($net - $vatable, 2);
+        $overpay = ($paidSoFar > $net + 0.004) ? round($paidSoFar - $net, 2) : 0.0;
+
+        $pdo->prepare(
+            'UPDATE reservation
+                SET discount_amount = ?,
+                    vat_exempt_sales = 0.00,
+                    vatable_sales = ?,
+                    vat_amount = ?,
+                    senior_discount_amount = 0.00,
+                    overpayment_amount = ?,
+                    total_amount = ?
+              WHERE reservation_id = ?'
+        )->execute([$discAmt, $vatable, $vatAmt, $overpay, $net, $reservationId]);
+    }
+
+    // Rule 1: Downpayment during online checkout is strictly calculated from the REGULAR (non-discounted) total ($gross).
+    if (!empty($row['resort_id']) && (float)($row['required_downpayment'] ?? 0) > 0) {
+        $rStmt = $pdo->prepare('SELECT online_payment_enabled, downpayment_percent FROM resort WHERE resort_id = ?');
+        $rStmt->execute([(int)$row['resort_id']]);
+        if ($rRow = $rStmt->fetch()) {
+            $on  = (int)($rRow['online_payment_enabled'] ?? 1) === 1;
+            $dpP = $on ? max(0, min(100, (int)($rRow['downpayment_percent'] ?? 50))) : 0;
+            $reqDp = ($on && $dpP > 0) ? ($dpP >= 100 ? $gross : round($gross * $dpP / 100, 2)) : 0.0;
+            $pdo->prepare('UPDATE reservation SET required_downpayment = ? WHERE reservation_id = ?')
+                ->execute([$reqDp, $reservationId]);
+        }
+    }
 }
 
 /** Amount received so far (paid minus refunded). */
@@ -574,15 +816,23 @@ function amount_paid(PDO $pdo, int $reservationId): float
 }
 
 
-/** Inverted-pyramid display name: "Lastname, Firstname". */
-function format_name_inv(string $last, string $first): string
+/** Inverted-pyramid display name: "Lastname, Firstname" or "Lastname, Firstname Middlename". */
+function format_name_inv(string $last, string $first, ?string $middle = ''): string
 {
     $l = trim($last);
     $f = trim($first);
-    if ($l !== '' && $f !== '') {
-        return $l . ', ' . $f;
+    $m = trim((string)$middle);
+    $fm = trim($f . ($m !== '' ? ' ' . $m : ''));
+    if ($l !== '' && $fm !== '') {
+        return $l . ', ' . $fm;
     }
-    return $l !== '' ? $l : $f;
+    return $l !== '' ? $l : $fm;
+}
+
+/** Standard full name: "Firstname Middlename Lastname". */
+function format_full_name(string $first, ?string $middle, string $last): string
+{
+    return implode(' ', array_filter([trim($first), trim((string)$middle), trim($last)], fn($s) => $s !== ''));
 }
 
 /**

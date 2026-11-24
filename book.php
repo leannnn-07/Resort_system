@@ -3,7 +3,6 @@ require_once __DIR__ . '/includes/layout.php';
 require_once __DIR__ . '/includes/booking.php';
 require_once __DIR__ . '/includes/payments.php';
 require_resort($pdo);
-require_guest_to_book($pdo);   // "Book a stay" needs an account
 
 $payRules = resort_payment_rules();
 $dpPct    = $payRules['downpayment_percent'];

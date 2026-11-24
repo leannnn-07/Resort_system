@@ -129,7 +129,7 @@ function send_booking_email(PDO $pdo, int $reservationId, string $kind = 'receiv
         $svcLines  = array_map(fn($x) => $x['service_name'] . ' × ' . (int)$x['quantity'], $r['services']);
         $companions = load_companions($pdo, $reservationId);
         $guests    = party_text($r, $companions);
-        $others = array_map(fn($c) => $c['first_name'] . ' ' . $c['last_name'] . ' (' . strtolower($c['guest_type']) . ')', $companions);
+        $others = array_map(fn($c) => format_full_name((string)$c['first_name'], (string)($c['middle_name'] ?? ''), (string)$c['last_name']) . ' (' . strtolower($c['guest_type']) . ')', $companions);
         $rows = [
             'Resort'     => $config['resort'],
             'Reference'  => $r['booking_ref'],

@@ -318,10 +318,12 @@ function create_trip_booking(PDO $pdo, array $rows, array $guest, array $extras)
             $x   = $extras[$row['id']] ?? [];
             $d = [
                 'scope' => $row['scope'], 'target_id' => $row['target'], 'type_id' => $row['type'], 'rooms' => $row['rooms_n'],
-                'check_in' => $row['check_in'], 'check_out' => $row['check_out'], 'adults' => $row['adults'], 'children' => $row['children'],
-                'first_name' => $guest['first_name'], 'last_name' => $guest['last_name'], 'email' => $guest['email'],
+                'check_in' => $row['check_in'], 'check_out' => $row['check_out'],
+                'adults' => (int)($x['adults'] ?? $row['adults']), 'children' => (int)($x['children'] ?? $row['children']),
+                'first_name' => $guest['first_name'], 'middle_name' => (string)($guest['middle_name'] ?? ''), 'last_name' => $guest['last_name'], 'email' => $guest['email'],
                 'phone' => $guest['phone'], 'address' => $guest['address'], 'booker_type' => $guest['booker_type'],
                 'requests' => (string)($x['requests'] ?? ''), 'services' => (array)($x['services'] ?? []), 'companions' => (array)($x['companions'] ?? []),
+                'discount' => (array)($x['discount'] ?? ($guest['discount'] ?? [])),
             ];
             try {
                 $made[$idx] = with_resort($row['resort'], fn() => create_booking_rows($pdo, $d));

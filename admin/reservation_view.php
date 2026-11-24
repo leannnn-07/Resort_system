@@ -11,7 +11,9 @@ $id = (int)($_GET['id'] ?? $_POST['id'] ?? 0);
 function load_reservation(PDO $pdo, int $id): ?array
 {
     $stmt = $pdo->prepare(
-        "SELECT v.*, CONCAT(g.last_name, ', ', g.first_name) AS guest, g.email, g.phone, g.address, g.id_type, g.id_number, s.full_name AS staff_name,
+        "SELECT v.*, g.first_name, g.middle_name, g.last_name,
+                CONCAT(g.last_name, ', ', g.first_name, IF(g.middle_name IS NOT NULL AND g.middle_name <> '', CONCAT(' ', g.middle_name), '')) AS guest,
+                g.email, g.phone, g.address, s.full_name AS staff_name,
                 (SELECT b.name FROM building b WHERE b.building_id = v.building_id) AS building_name,
                 (SELECT p.name FROM reservation_pool rp JOIN pool p ON p.pool_id = rp.pool_id WHERE rp.reservation_id = v.reservation_id LIMIT 1) AS pool_name,
                 (SELECT rc.cottage_name FROM reservation_cottage rc WHERE rc.reservation_id = v.reservation_id LIMIT 1) AS cottage_name
@@ -37,17 +39,19 @@ if (!$res) {
 $self = 'reservation_view.php?id=' . $id;
 staff_notification_mark_reservation_read($pdo, (int)$staffMember['staff_id'], $id);
 
-/** How many people a whole-pool / building / resort booking can hold: the pool's limit, or what its rooms sleep. */
+/** Maximum guests this reservation can hold (cottage capacity, pool capacity, or total room max_occupancy). */
 function whole_capacity(PDO $pdo, int $id, string $scope): int
 {
-    if ($scope === 'Pool') {
+    if ($scope === 'Cottage') {
+        $st = $pdo->prepare('SELECT COALESCE(SUM(COALESCE(p.max_guests, 15) * rc.quantity), 15) FROM reservation_cottage rc LEFT JOIN price_item p ON p.price_item_id = rc.price_item_id WHERE rc.reservation_id = ?');
+    } elseif ($scope === 'Pool') {
         $st = $pdo->prepare('SELECT COALESCE(SUM(p.max_guests), 0) FROM reservation_pool rp JOIN pool p ON p.pool_id = rp.pool_id WHERE rp.reservation_id = ?');
     } else {
         $st = $pdo->prepare("SELECT COALESCE(SUM(t.max_occupancy), 0) FROM reservation_room rr JOIN room r ON r.room_id = rr.room_id
                               JOIN room_type t ON t.room_type_id = r.room_type_id WHERE rr.reservation_id = ? AND r.status <> 'Maintenance'");
     }
     $st->execute([$id]);
-    return (int)$st->fetchColumn();
+    return max(1, (int)$st->fetchColumn());
 }
 
 // ---------- Actions ----------
@@ -195,33 +199,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($closed_now = in_array($res['status'], ['Cancelled', 'Checked-out'], true)) {
                 throw new RuntimeException('You can’t change the guests of a ' . strtolower($res['status']) . ' reservation.');
             }
-            if ($res['booking_scope'] !== 'Rooms') {
-                throw new RuntimeException('Guest names aren’t kept for whole-place bookings.');
+            $maxCap = whole_capacity($pdo, $id, (string)$res['booking_scope']);
+            $pLast  = trim((string)($_POST['primary_last_name'] ?? $res['last_name']));
+            $pFirst = trim((string)($_POST['primary_first_name'] ?? $res['first_name']));
+            $pMid   = trim((string)($_POST['primary_middle_name'] ?? ($res['middle_name'] ?? '')));
+            $pPhone = trim((string)($_POST['primary_phone'] ?? ($res['phone'] ?? '')));
+            if ($pFirst === '' || $pLast === '' || mb_strlen($pFirst) > 60 || mb_strlen($pLast) > 60 || mb_strlen($pMid) > 60) {
+                throw new RuntimeException('Enter the primary guest’s first and last name (up to 60 characters each).');
             }
-            $total = (int)$res['num_guests'];
-            $bt    = clean_booker_type($_POST['booker_type'] ?? 'Adult');
-            $list  = parse_companions($_POST, $total, 0, false);
-            [$na, $nc] = party_counts($bt, $list, (int)$res['num_adults'], (int)$res['num_children']);
+            if ($pPhone !== '' && !preg_match('/^[0-9+()\-\s]{7,30}$/', $pPhone)) {
+                throw new RuntimeException('Phone numbers can only have digits, spaces, + and -.');
+            }
+
+            $bt   = clean_booker_type($_POST['booker_type'] ?? 'Adult');
+            $list = parse_companions($_POST, (int)$res['num_guests'], 0, false, $maxCap);
+            [$na, $nc] = party_counts($bt, $list, (int)$res['num_adults'], (int)$res['num_children'], true);
+            $reqTotal = isset($_POST['total_guests']) && $_POST['total_guests'] !== '' ? (int)$_POST['total_guests'] : ($na + $nc);
+            if ($reqTotal < 1 || $reqTotal > $maxCap) {
+                throw new RuntimeException('This booking holds 1 to ' . plural($maxCap, 'guest') . '.');
+            }
+            // If staff entered a higher headcount than named companions, keep the extra guests in num_adults.
+            if ($reqTotal > $na + $nc) {
+                $na += ($reqTotal - ($na + $nc));
+            }
+
             $pdo->beginTransaction();
             try {
+                $pdo->prepare('UPDATE guest SET first_name = ?, middle_name = ?, last_name = ?, phone = ? WHERE guest_id = ?')
+                    ->execute([$pFirst, $pMid !== '' ? $pMid : null, $pLast, $pPhone !== '' ? $pPhone : null, (int)$res['guest_id']]);
                 $pdo->prepare('DELETE FROM reservation_companion WHERE reservation_id = ?')->execute([$id]);
                 save_companions($pdo, $id, $list);
                 $pdo->prepare('UPDATE reservation SET booker_type = ?, num_adults = ?, num_children = ? WHERE reservation_id = ?')->execute([$bt, $na, $nc, $id]);
+                if ($res['booking_scope'] === 'Cottage') {
+                    $ent = cottage_entrance_total($pdo, resort_id(), $na, $nc);
+                    $pdo->prepare('UPDATE reservation_cottage SET entrance_total = ? WHERE reservation_id = ?')->execute([$ent['total'], $id]);
+                }
+                recalc_total($pdo, $id);
                 $pdo->commit();
             } catch (Throwable $e) {
                 if ($pdo->inTransaction()) { $pdo->rollBack(); }
                 throw $e;
             }
-            flash('Guests saved.');
+            flash('Guest list & headcount updated (' . plural($na + $nc, 'guest') . ').');
         } elseif ($action === 'headcount') {
             if (in_array($res['status'], ['Cancelled', 'Checked-out'], true)) {
                 throw new RuntimeException('You can’t change the headcount of a ' . strtolower($res['status']) . ' reservation.');
             }
-            if ($res['booking_scope'] === 'Rooms') {
-                throw new RuntimeException('Use Edit guests for room bookings.');
-            }
             $na = (string)($_POST['num_adults'] ?? '');
-            $nc = (string)($_POST['num_children'] ?? '');
+            $nc = (string)($_POST['num_children'] ?? '0');
             if (!ctype_digit($na) || !ctype_digit($nc) || (int)$na < 1) {
                 throw new RuntimeException('Enter at least 1 adult and 0 or more children.');
             }
@@ -230,6 +255,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new RuntimeException('This booking holds up to ' . plural($cap, 'guest') . '. Lower the headcount.');
             }
             $pdo->prepare('UPDATE reservation SET num_adults = ?, num_children = ? WHERE reservation_id = ?')->execute([(int)$na, (int)$nc, $id]);
+            if ($res['booking_scope'] === 'Cottage') {
+                $ent = cottage_entrance_total($pdo, resort_id(), (int)$na, (int)$nc);
+                $pdo->prepare('UPDATE reservation_cottage SET entrance_total = ? WHERE reservation_id = ?')->execute([$ent['total'], $id]);
+            }
+            recalc_total($pdo, $id);
             flash('Headcount saved: ' . plural((int)$na + (int)$nc, 'guest') . '.');
         } elseif ($action === 'requests') {
             $text = trim((string)($_POST['special_requests'] ?? ''));
@@ -322,6 +352,63 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->prepare("UPDATE payment SET payment_status = 'Voided' WHERE payment_id = ? AND reservation_id = ? AND payment_status <> 'Voided'")
                 ->execute([(int)($_POST['payment_id'] ?? 0), $id]);
             flash('Payment voided. It stays on the record but no longer counts.');
+
+        } elseif ($action === 'approve_discount') {
+            $note = trim((string)($_POST['discount_note'] ?? ''));
+            $overTheCounter = [
+                'verified_senior_count'  => (int)($_POST['verified_senior_count'] ?? ($res['claimed_senior_count'] ?: 1)),
+                'overpayment_resolution' => trim((string)($_POST['overpayment_resolution'] ?? ($res['overpayment_resolution'] ?? ''))),
+            ];
+            $updated = staff_decide_discount($pdo, $id, $staffMember, 'approve', $note, $overTheCounter);
+            $overMsg = (float)($updated['overpayment_amount'] ?? 0) > 0.004
+                ? (' Overpayment of ' . money($updated['overpayment_amount']) . ' flagged for ' . ($updated['overpayment_resolution'] ?: 'Cash Refund / Consumable Resort Credit') . '.')
+                : '';
+            flash('Over-the-counter discount verified & approved (' . ($updated['discount_label'] ?? $updated['discount_type']) . '). Total savings: ' . money($updated['discount_amount']) . '.' . $overMsg);
+
+        } elseif ($action === 'reject_discount') {
+            $note = trim((string)($_POST['discount_note'] ?? ''));
+            $updated = staff_decide_discount($pdo, $id, $staffMember, 'reject', $note);
+            flash('Discount claim rejected. The booking remains at the regular price.');
+
+        } elseif ($action === 'apply_staff_discount') {
+            if (in_array($res['status'], ['Cancelled', 'Checked-out'], true)) {
+                throw new RuntimeException('Cannot change discounts on a ' . strtolower($res['status']) . ' reservation.');
+            }
+            $choice = trim((string)($_POST['discount_choice'] ?? 'none'));
+            $note   = trim((string)($_POST['discount_note'] ?? ''));
+            if ($choice === '' || $choice === 'none') {
+                $pdo->prepare(
+                    'UPDATE reservation
+                        SET discount_type = NULL, discount_label = NULL, discount_percent = 0, discount_amount = 0,
+                            discount_status = NULL, discount_offer_id = NULL, discount_verified_at = NULL,
+                            discount_verified_by = NULL, discount_approver_name = NULL, discount_note = NULL,
+                            has_senior_claim = 0, claimed_senior_count = 0, verified_senior_count = 0,
+                            senior_verification_status = NULL, senior_physical_present = 0,
+                            vat_exempt_sales = 0, vatable_sales = 0, vat_amount = 0, senior_discount_amount = 0,
+                            overpayment_amount = 0, overpayment_resolution = NULL
+                      WHERE reservation_id = ?'
+                )->execute([$id]);
+                recalc_total($pdo, $id);
+                flash('Discount removed. Booking total restored to regular price.');
+            } else {
+                $totalGuests = max(1, (int)$res['num_guests']);
+                $claimedCnt  = max(1, min($totalGuests, (int)($_POST['verified_senior_count'] ?? 1)));
+                $disc = parse_discount_application(
+                    $pdo,
+                    resort_id(),
+                    (string)$res['check_in_date'],
+                    $choice,
+                    $totalGuests,
+                    $claimedCnt
+                );
+                apply_reservation_discount_data($pdo, $id, $disc);
+                $overTheCounter = [
+                    'verified_senior_count'  => $claimedCnt,
+                    'overpayment_resolution' => trim((string)($_POST['overpayment_resolution'] ?? '')),
+                ];
+                $updated = staff_decide_discount($pdo, $id, $staffMember, 'approve', $note, $overTheCounter);
+                flash('Applied and approved ' . ($updated['discount_label'] ?? $updated['discount_type']) . ' (−' . money($updated['discount_amount']) . ').');
+            }
         }
     } catch (PDOException $e) {
         flash('The database rejected that change. Check the values and try again.', 'error');
@@ -416,7 +503,7 @@ admin_start('Reservation ' . $res['booking_ref'], 'reservations');
   <section class="panel">
     <h2>Details</h2>
     <dl class="facts">
-      <dt>Guest</dt><dd><?= h($res['guest']) ?><br><span class="muted"><?= h($res['email']) ?><?= $res['phone'] ? ', ' . h($res['phone']) : '' ?><?= $res['address'] ? '<br>' . h($res['address']) : '' ?><?php $idShown = id_display($res['id_number'], $staffMember); ?><?= ($res['id_type'] || $idShown) ? '<br>' . h(trim(($res['id_type'] ?: 'ID') . ($idShown ? ': ' . $idShown : ''))) : '' ?></span></dd>
+      <dt>Guest</dt><dd><?= h($res['guest']) ?><br><span class="muted"><?= h($res['email']) ?><?= $res['phone'] ? ', ' . h($res['phone']) : '' ?><?= $res['address'] ? '<br>' . h($res['address']) : '' ?></span></dd>
       <dt>Booked</dt><dd><strong><?= h(scope_label($res)) ?></strong></dd>
       <?php if ($res['booking_scope'] === 'Cottage'): ?>
         <dt>Visit date</dt><dd><?= h(fdate($res['check_in_date'])) ?> <span class="muted">(Day use)</span></dd>
@@ -434,7 +521,7 @@ admin_start('Reservation ' . $res['booking_ref'], 'reservations');
           : ('View rooms (' . count($rooms) . ')');
     ?>
     <div class="detail-triggers no-print">
-      <button type="button" class="btn sm" data-form-open="guests-modal">View guests (<?= (int)$res['num_guests'] ?>)</button>
+      <button type="button" class="btn sm" data-form-open="guests-modal"><?= $closed ? 'View guests' : 'View / Edit guests' ?> (<?= (int)$res['num_guests'] ?>)</button>
       <button type="button" class="btn sm" data-form-open="stay-items-modal"><?= h($stayBtnLabel) ?></button>
       <button type="button" class="btn sm" data-form-open="addons-modal">View add-ons (<?= count($lines) ?>)</button>
       <?php if (in_array($res['status'], ['Pending', 'Confirmed', 'Checked-in'], true)): ?>
@@ -445,21 +532,131 @@ admin_start('Reservation ' . $res['booking_ref'], 'reservations');
   </section>
 
   <section class="panel">
-    <h2>Payment summary</h2>
+    <h2>Payment &amp; BIR Billing Summary</h2>
+    <?php
+      $grossTotal   = round($roomSum + $svcSum, 2);
+      $totalPax     = max(1, (int)$res['num_guests']);
+      $isSeniorClaim = (int)($res['has_senior_claim'] ?? 0) === 1 || in_array($res['discount_type'] ?? '', ['Senior', 'PWD'], true);
+      $hasDisc      = !empty($res['discount_type']) || $isSeniorClaim;
+      $discSt       = (string)($res['discount_status'] ?? '');
+      $srVerSt      = (string)($res['senior_verification_status'] ?? '');
+      $discPct      = rtrim(rtrim(number_format((float)($res['discount_percent'] ?? 0), 2, '.', ''), '0'), '.');
+      $discAmt      = (float)($res['discount_amount'] ?? 0);
+      $activeOffers = active_special_discounts($pdo, resort_id(), (string)$res['check_in_date']);
+      $claimedSrCnt = max(1, min($totalPax, (int)($res['claimed_senior_count'] ?: 1)));
+      $verifiedSrCnt = ($discSt === 'Approved' || $srVerSt === 'verified')
+          ? max(1, min($totalPax, (int)($res['verified_senior_count'] ?: $claimedSrCnt)))
+          : 0;
+      $raCalc = calculate_ra9994_discount($grossTotal, $totalPax, $verifiedSrCnt > 0 ? $verifiedSrCnt : $claimedSrCnt, $paid);
+      $overpayAmt = (float)($res['overpayment_amount'] ?? 0);
+      if ($overpayAmt <= 0.004 && $paid > (float)$res['total_amount'] + 0.004) {
+          $overpayAmt = round($paid - (float)$res['total_amount'], 2);
+      }
+    ?>
     <dl class="facts">
       <dt><?= $res['booking_scope'] === 'Cottage' ? 'Cottage & entrance' : ($res['booking_scope'] === 'Rooms' ? 'Rooms' : 'Accommodation') ?></dt><dd class="num"><?= h(money($roomSum)) ?></dd>
       <dt>Add-ons</dt><dd class="num"><?= h(money($svcSum)) ?></dd>
-      <dt>Total</dt><dd class="num strong"><?= h(money($res['total_amount'])) ?></dd>
+      <?php if ($hasDisc): ?>
+        <dt>Regular total (12% VAT-incl.)</dt><dd class="num"><?= h(money($grossTotal)) ?></dd>
+        <?php if ($isSeniorClaim): ?>
+          <dt>VAT-Exempt Sales <small class="muted">(<?= $verifiedSrCnt > 0 ? $verifiedSrCnt : $claimedSrCnt ?>/<?= $totalPax ?> pax senior base)</small></dt>
+          <dd class="num"><?= h(money($raCalc['vat_exempt_sales'])) ?></dd>
+          <dt>Less: 20% Senior / PWD Discount</dt>
+          <dd class="num">−<?= h(money($raCalc['senior_discount_amount'])) ?></dd>
+          <dt>Senior / PWD Net Share <small class="muted">(VAT-exempt)</small></dt>
+          <dd class="num"><?= h(money($raCalc['senior_share_total'])) ?></dd>
+          <?php if ($raCalc['regular_guest_count'] > 0): ?>
+            <dt>VATable Sales <small class="muted">(<?= $raCalc['regular_guest_count'] ?>/<?= $totalPax ?> regular companions)</small></dt>
+            <dd class="num"><?= h(money($raCalc['vatable_sales'])) ?></dd>
+            <dt>12% VAT <small class="muted">(regular companions)</small></dt>
+            <dd class="num"><?= h(money($raCalc['vat_amount'])) ?></dd>
+          <?php endif; ?>
+        <?php endif; ?>
+        <dt>
+          <?= h($res['discount_label'] ?: ($res['discount_type'] . ' (' . $discPct . '%)')) ?>
+          <?php if ($discSt === 'Approved'): ?>
+            <span class="badge confirmed">Verified</span>
+          <?php elseif ($discSt === 'Rejected'): ?>
+            <span class="badge cancelled">Rejected</span>
+          <?php else: ?>
+            <span class="badge pending">Pending over-the-counter check</span>
+          <?php endif; ?>
+        </dt>
+        <dd class="num"><?= $discSt === 'Approved' ? '−' . h(money($discAmt)) : '<span class="muted">Est. −' . h(money($raCalc['total_savings'])) . '</span>' ?></dd>
+      <?php endif; ?>
+      <dt>Final Total Due</dt><dd class="num strong"><?= h(money($res['total_amount'])) ?></dd>
       <?php if ($paySum['required_downpayment'] > 0.004): ?>
-        <dt>Required downpayment</dt>
+        <dt>Required downpayment <small class="muted">(off regular rate)</small></dt>
         <dd class="num"><?= h(money($paySum['required_downpayment'])) ?> <?= $paySum['downpayment_met'] ? '<span class="badge confirmed">Met</span>' : ($paySum['awaiting_verification'] ? '<span class="badge pending">Verify ref</span>' : '<span class="badge pending">Unpaid</span>') ?></dd>
       <?php endif; ?>
       <dt>Paid (verified)</dt><dd class="num"><?= h(money($paid)) ?></dd>
       <?php if ($paySum['pending'] > 0.004): ?>
         <dt>Pending verification</dt><dd class="num"><?= h(money($paySum['pending'])) ?></dd>
       <?php endif; ?>
-      <dt>Balance</dt><dd class="num strong<?= $balance > 0.004 && $res['status'] !== 'Cancelled' ? ' due' : '' ?>"><?= h(money($balance)) ?></dd>
+      <dt>Remaining Balance</dt><dd class="num strong<?= $balance > 0.004 && $res['status'] !== 'Cancelled' ? ' due' : '' ?>"><?= h(money($balance)) ?></dd>
+      <?php if ($overpayAmt > 0.004): ?>
+        <dt style="color:#b45309;font-weight:700">Overpayment (Refund / Credit)</dt>
+        <dd class="num strong" style="color:#b45309"><?= h(money($overpayAmt)) ?> <span class="badge pending"><?= h($res['overpayment_resolution'] ?: 'Cash Refund / Resort Credit') ?></span></dd>
+      <?php endif; ?>
     </dl>
+
+    <?php if ($overpayAmt > 0.004): ?>
+      <div class="notice warn" style="margin-top:12px" role="status">
+        <strong>Overpayment of <?= h(money($overpayAmt)) ?> detected:</strong>
+        The guest’s upfront downpayment (<?= h(money($paid)) ?>) exceeds the final RA 9994 discounted total (<?= h(money($res['total_amount'])) ?>).
+        Issue a <strong><?= h($res['overpayment_resolution'] ?: 'Cash Refund or Consumable Resort Credit') ?></strong> at the front desk.
+      </div>
+    <?php endif; ?>
+
+    <?php if ($hasDisc): ?>
+      <div class="notice<?= $discSt === 'Pending' ? ' warn' : ($discSt === 'Approved' ? ' ok' : '') ?>" style="margin-top:12px">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">
+          <div>
+            <strong><?= h($res['discount_label'] ?: ($res['discount_type'] . ' Discount')) ?></strong>
+            <?php if ($isSeniorClaim): ?>
+              <div class="muted" style="font-size:13px;margin-top:3px">
+                Pro-rated for <strong><?= $verifiedSrCnt > 0 ? $verifiedSrCnt : $claimedSrCnt ?> of <?= $totalPax ?> guests</strong> ·
+                Savings: <strong><?= h(money($raCalc['total_savings'])) ?></strong> (20% discount + 12% VAT-exempt share)
+              </div>
+            <?php else: ?>
+              (−<?= h(money($discAmt)) ?> off original price of <?= h(money($grossTotal)) ?>)
+            <?php endif; ?>
+            <?php if (!empty($res['discount_approver_name'])): ?>
+              <div class="muted" style="font-size:12.5px;margin-top:4px">
+                <?= $discSt === 'Approved' ? 'Verified & approved over the counter' : 'Reviewed' ?> by <?= h($res['discount_approver_name']) ?>
+                <?= !empty($res['discount_verified_at']) ? ' · ' . h(date('M j, Y · g:i A', strtotime($res['discount_verified_at']))) : '' ?>
+                <?= !empty($res['discount_note']) ? ' · ' . h($res['discount_note']) : '' ?>
+              </div>
+            <?php endif; ?>
+          </div>
+          <?php if (!$closed): ?>
+            <div class="act-group">
+              <?php if ($discSt !== 'Approved'): ?>
+                <?php if ($isSeniorClaim): ?>
+                  <button type="button" class="btn sm primary" data-form-open="verify-senior-modal">Verify &amp; approve over the counter</button>
+                <?php else: ?>
+                  <form method="post">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="id" value="<?= $id ?>">
+                    <input type="hidden" name="action" value="approve_discount">
+                    <button class="btn sm primary" type="submit" data-confirm="Approve this <?= h($res['discount_label'] ?: 'discount') ?> over the counter and deduct <?= h(money($discAmt)) ?> from the original price?" data-confirm-title="Approve discount" data-confirm-ok="Yes, approve discount">Approve discount</button>
+                  </form>
+                <?php endif; ?>
+              <?php endif; ?>
+              <?php if ($discSt !== 'Rejected'): ?>
+                <button type="button" class="btn sm danger" data-form-open="reject-discount-modal">Reject</button>
+              <?php endif; ?>
+              <button type="button" class="btn sm" data-form-open="manage-discount-modal">Edit / Apply</button>
+            </div>
+          <?php endif; ?>
+        </div>
+      </div>
+    <?php elseif (!$closed): ?>
+      <div style="margin-top:12px">
+        <button type="button" class="btn sm" data-form-open="manage-discount-modal">Apply Senior (RA 9994) / PWD / Special discount</button>
+      </div>
+    <?php endif; ?>
+
     <?php if ($paySum['awaiting_verification']): ?>
       <p class="notice warn" style="margin-top:12px">
         Pending verification: <strong><?= h(money($paySum['pending'])) ?></strong> · <a href="#payments">Verify screenshot &amp; ref</a>
@@ -496,7 +693,7 @@ admin_start('Reservation ' . $res['booking_ref'], 'reservations');
         <?php foreach ($companions as $i => $c): ?>
           <tr>
             <td><?= $i + 2 ?></td>
-            <td><?= h($c['first_name'] . ' ' . $c['last_name']) ?></td>
+            <td><?= h(format_name_inv((string)$c['last_name'], (string)$c['first_name'], (string)($c['middle_name'] ?? ''))) ?></td>
             <td><?= h($c['guest_type']) ?></td>
             <td class="muted">&ndash;</td>
           </tr>
@@ -504,31 +701,52 @@ admin_start('Reservation ' . $res['booking_ref'], 'reservations');
         </tbody>
       </table>
     </div>
-    <?php if ($res['booking_scope'] === 'Rooms' && count($companions) + 1 < (int)$res['num_guests']): ?>
+    <?php if (count($companions) + 1 < (int)$res['num_guests']): ?>
       <p class="muted" style="margin:10px 0 0">Names for <?= (int)$res['num_guests'] - count($companions) - 1 ?> guest(s) were not entered.</p>
     <?php endif; ?>
-    <?php if ($res['booking_scope'] !== 'Rooms' && !$closed): $cap = whole_capacity($pdo, $id, $res['booking_scope']); ?>
-    <details style="margin-top:14px"><summary class="muted" style="cursor:pointer;font-weight:600">Edit guest count</summary>
-      <form method="post" class="grid-form" style="margin-top:10px">
-        <?= csrf_field() ?><input type="hidden" name="id" value="<?= $id ?>"><input type="hidden" name="action" value="headcount">
-        <label><span>Guests</span><input type="number" name="num_adults" value="<?= (int)$res['num_adults'] + (int)$res['num_children'] ?>" min="1" max="<?= $cap ?>" step="1" required></label>
-        <input type="hidden" name="num_children" value="0">
-        <div class="actions wide"><button class="btn sm primary" type="submit">Save headcount</button> <span class="muted">Up to <?= h(plural($cap, 'guest')) ?>.</span></div>
-      </form>
-    </details>
-    <?php endif; ?>
-    <?php if ($res['booking_scope'] === 'Rooms' && !$closed): ?>
-    <details style="margin-top:14px"><summary class="muted" style="cursor:pointer;font-weight:600">Edit guest names</summary>
-      <form method="post" class="stack" style="margin-top:10px">
+    <?php if (!$closed):
+      $cap = whole_capacity($pdo, $id, (string)$res['booking_scope']);
+      $pv  = [];
+      foreach ($companions as $c) {
+          $pv[] = [
+              'type'        => $c['guest_type'],
+              'first_name'  => $c['first_name'],
+              'middle_name' => (string)($c['middle_name'] ?? ''),
+              'last_name'   => $c['last_name'],
+          ];
+      }
+    ?>
+    <details style="margin-top:14px" open><summary class="muted" style="cursor:pointer;font-weight:600">Edit guest list, names &amp; number of guests (max <?= $cap ?>)</summary>
+      <form method="post" class="stack" style="margin-top:12px" id="admin-edit-guests-form">
         <?= csrf_field() ?><input type="hidden" name="id" value="<?= $id ?>"><input type="hidden" name="action" value="edit_guests">
-        <?= booker_type_field((string)($res['booker_type'] ?? 'Adult')) ?>
-        <?php
-          $pv = [];
-          foreach ($companions as $c) { $pv[] = ['type' => $c['guest_type'], 'first_name' => $c['first_name'], 'last_name' => $c['last_name']]; }
-          echo companion_fields((int)$res['num_guests'], 0, $pv, false);
-        ?>
-        <div class="actions"><button class="btn sm primary" type="submit">Save guests</button></div>
+        <fieldset class="companion" style="margin:0;padding:12px 14px">
+          <legend>Guest 1 · Primary guest (booked by)</legend>
+          <div class="grid-form two-col">
+            <label><span>Last name</span><input name="primary_last_name" value="<?= h((string)$res['last_name']) ?>" maxlength="60" required></label>
+            <label><span>First name</span><input name="primary_first_name" value="<?= h((string)$res['first_name']) ?>" maxlength="60" required></label>
+            <label><span>Middle name <small class="muted">(optional)</small></span><input name="primary_middle_name" value="<?= h((string)($res['middle_name'] ?? '')) ?>" maxlength="60" placeholder="Optional"></label>
+            <label><span>Phone</span><input name="primary_phone" value="<?= h((string)($res['phone'] ?? '')) ?>" maxlength="30"></label>
+            <?= booker_type_field((string)($res['booker_type'] ?? 'Adult')) ?>
+            <label><span>Total number of guests <small class="muted">(1 to <?= $cap ?>)</small></span>
+              <input type="number" name="total_guests" id="admin-total-guests-input" value="<?= (int)$res['num_guests'] ?>" min="1" max="<?= $cap ?>" step="1" required>
+            </label>
+          </div>
+        </fieldset>
+        <?= companion_fields(1 + count($pv), 0, $pv, false, '', $cap) ?>
+        <div class="actions"><button class="btn sm primary" type="submit">Save guest list &amp; headcount</button></div>
       </form>
+      <script>
+      (function () {
+        var form = document.getElementById('admin-edit-guests-form');
+        var totIn = document.getElementById('admin-total-guests-input');
+        if (!form || !totIn) return;
+        form.addEventListener('companions:change', function (e) {
+          if (e.detail && typeof e.detail.totalGuests === 'number') {
+            totIn.value = String(e.detail.totalGuests);
+          }
+        });
+      })();
+      </script>
     </details>
     <?php endif; ?>
     <div class="modal-actions" style="margin-top:16px"><button class="btn" type="button" data-modal-close>Close</button></div>
@@ -691,6 +909,129 @@ admin_start('Reservation ' . $res['booking_ref'], 'reservations');
     </form>
   </div>
 </div>
+
+<?php if (!$closed): ?>
+<!-- Pop-up modal: Over-the-Counter Discount Verification (RA 9994 & PWD) -->
+<div class="modal" id="verify-senior-modal" data-form-modal role="dialog" aria-modal="true" aria-labelledby="ver-sr-title">
+  <div class="modal-card form-card">
+    <div class="modal-head">
+      <h2 id="ver-sr-title">Verify &amp; Approve Over-the-Counter Discount</h2>
+      <button type="button" class="modal-x" data-modal-close aria-label="Close">&times;</button>
+    </div>
+    <form method="post" class="stack">
+      <?= csrf_field() ?>
+      <input type="hidden" name="id" value="<?= $id ?>">
+      <input type="hidden" name="action" value="approve_discount">
+
+      <div class="notice" style="margin:0">
+        <strong>Pro-Rated Calculation (<?= $totalPax ?> total guests in booking):</strong><br>
+        Regular Total: <strong><?= h(money($grossTotal)) ?></strong> (VAT-Excl. Base: <?= h(money($raCalc['vat_exclusive_total'])) ?> · <?= h(money($raCalc['per_pax_base_share'])) ?>/pax)<br>
+        Est. Senior / PWD Share (<?= $claimedSrCnt ?> pax · 20% off + VAT-exempt): <strong><?= h(money($raCalc['senior_share_total'])) ?></strong><br>
+        Est. Final Total: <strong><?= h(money($raCalc['final_discounted_total'])) ?></strong> (Savings: <strong><?= h(money($raCalc['total_savings'])) ?></strong>)
+      </div>
+
+      <label><span>Verified Senior / PWD Guest Count <small class="muted">(out of <?= $totalPax ?> total guests)</small></span>
+        <input type="number" name="verified_senior_count" value="<?= $verifiedSrCnt > 0 ? $verifiedSrCnt : $claimedSrCnt ?>" min="1" max="<?= $totalPax ?>" step="1" required>
+      </label>
+
+      <?php if ($raCalc['needs_refund_or_credit']): ?>
+      <label><span>Overpayment Resolution (Downpayment paid <?= h(money($paid)) ?> exceeds discounted total by <?= h(money($raCalc['overpayment_amount'])) ?>)</span>
+        <select name="overpayment_resolution">
+          <option value="Cash Refund"<?= ($res['overpayment_resolution'] ?? '') === 'Cash Refund' ? ' selected' : '' ?>>Cash Refund at Front Desk (<?= h(money($raCalc['overpayment_amount'])) ?>)</option>
+          <option value="Consumable Resort Credit"<?= ($res['overpayment_resolution'] ?? '') === 'Consumable Resort Credit' ? ' selected' : '' ?>>Consumable Resort Credit (dining / add-ons)</option>
+        </select>
+      </label>
+      <?php endif; ?>
+
+      <label><span>Verification Note <small class="muted">(optional)</small></span>
+        <input type="text" name="discount_note" value="<?= h((string)($res['discount_note'] ?? '')) ?>" maxlength="255" placeholder="e.g. Verified over the counter upon arrival">
+      </label>
+
+      <div class="modal-actions">
+        <button class="btn" type="button" data-modal-close>Cancel</button>
+        <button class="btn primary" type="submit">Verify &amp; Approve Over-the-Counter Discount</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Pop-up modal: Reject discount -->
+<div class="modal" id="reject-discount-modal" data-form-modal role="dialog" aria-modal="true" aria-labelledby="rej-disc-title">
+  <div class="modal-card form-card narrow-card">
+    <div class="modal-head">
+      <h2 id="rej-disc-title">Reject discount</h2>
+      <button type="button" class="modal-x" data-modal-close aria-label="Close">&times;</button>
+    </div>
+    <form method="post" class="stack">
+      <?= csrf_field() ?>
+      <input type="hidden" name="id" value="<?= $id ?>">
+      <input type="hidden" name="action" value="reject_discount">
+      <p class="muted" style="margin:0">Reject <?= h($res['discount_label'] ?: 'this discount') ?> and keep the regular price of <?= h(money($grossTotal)) ?>.</p>
+      <label><span>Reason <small class="muted">(shown to guest)</small></span>
+        <input name="discount_note" maxlength="255" placeholder="e.g. Not verified at front desk" required>
+      </label>
+      <div class="modal-actions">
+        <button class="btn" type="button" data-modal-close>Cancel</button>
+        <button class="btn danger" type="submit">Reject discount</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Pop-up modal: Apply or change discount over the counter -->
+<div class="modal" id="manage-discount-modal" data-form-modal role="dialog" aria-modal="true" aria-labelledby="mng-disc-title">
+  <div class="modal-card form-card">
+    <div class="modal-head">
+      <h2 id="mng-disc-title">Apply &amp; approve over-the-counter discount</h2>
+      <button type="button" class="modal-x" data-modal-close aria-label="Close">&times;</button>
+    </div>
+    <form method="post" class="stack">
+      <?= csrf_field() ?>
+      <input type="hidden" name="id" value="<?= $id ?>">
+      <input type="hidden" name="action" value="apply_staff_discount">
+      <?php
+        $curChoice = 'none';
+        if (($res['discount_type'] ?? '') === 'Special' && !empty($res['discount_offer_id'])) {
+            $curChoice = 'Special:' . (int)$res['discount_offer_id'];
+        } elseif (in_array($res['discount_type'] ?? '', ['Senior', 'PWD'], true)) {
+            $curChoice = (string)$res['discount_type'];
+        }
+      ?>
+      <label><span>Discount type (Regular total: <?= h(money($grossTotal)) ?> · <?= $totalPax ?> total guests)</span>
+        <select name="discount_choice">
+          <option value="none"<?= $curChoice === 'none' ? ' selected' : '' ?>>No discount (full regular price)</option>
+          <option value="Senior"<?= $curChoice === 'Senior' ? ' selected' : '' ?>>RA 9994 Senior Citizen (20% off + 12% VAT-exempt pro-rated share)</option>
+          <option value="PWD"<?= $curChoice === 'PWD' ? ' selected' : '' ?>>PWD Statutory Discount (20% off + 12% VAT-exempt pro-rated share)</option>
+          <?php foreach ($activeOffers as $of):
+              $ofVal = 'Special:' . (int)$of['discount_id'];
+              $ofPct = rtrim(rtrim(number_format((float)$of['percent_off'], 2, '.', ''), '0'), '.');
+          ?>
+            <option value="<?= h($ofVal) ?>"<?= $curChoice === $ofVal ? ' selected' : '' ?>><?= h($of['title']) ?> (<?= h($ofPct) ?>% off)</option>
+          <?php endforeach; ?>
+        </select>
+      </label>
+      <div class="grid-form two-col">
+        <label><span>Verified Senior / PWD Count <small class="muted">(out of <?= $totalPax ?>)</small></span>
+          <input type="number" name="verified_senior_count" value="<?= $verifiedSrCnt > 0 ? $verifiedSrCnt : $claimedSrCnt ?>" min="1" max="<?= $totalPax ?>" step="1">
+        </label>
+        <label><span>Overpayment Resolution <small class="muted">(if downpayment &gt; total)</small></span>
+          <select name="overpayment_resolution">
+            <option value="Cash Refund"<?= ($res['overpayment_resolution'] ?? '') === 'Cash Refund' ? ' selected' : '' ?>>Cash Refund</option>
+            <option value="Consumable Resort Credit"<?= ($res['overpayment_resolution'] ?? '') === 'Consumable Resort Credit' ? ' selected' : '' ?>>Consumable Resort Credit</option>
+          </select>
+        </label>
+      </div>
+      <label><span>Approval note <small class="muted">(optional)</small></span>
+        <input name="discount_note" value="<?= h((string)($res['discount_note'] ?? '')) ?>" maxlength="255" placeholder="e.g. Verified over the counter at front desk">
+      </label>
+      <div class="modal-actions">
+        <button class="btn" type="button" data-modal-close>Cancel</button>
+        <button class="btn primary" type="submit">Apply &amp; approve</button>
+      </div>
+    </form>
+  </div>
+</div>
+<?php endif; ?>
 
 <script>
 (function () {

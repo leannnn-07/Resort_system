@@ -22,7 +22,7 @@ foreach ($stays as $t) {
 site_start('Price list', 'pricelist');
 ?>
 <div class="page-head"><h1>Price list</h1></div>
-<p class="muted lede">Entrance fees and cottage rates for a day at the resort, and our nightly rates if you want to stay over.</p>
+<p class="muted lede">Entrance fees and cottage rates for a day at the resort, and our nightly rates if you want to stay over. Senior citizens, PWDs, and special promo offers receive their discount directly off the original price—verified and approved over the counter upon arrival.</p>
 
 <div class="price-grid">
   <?php foreach ($groups as $name => $rows): ?>

@@ -75,6 +75,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 site_start('Forgot password', 'account', 'no-nav');
 ?>
+<div class="auth-outer-bar is-single">
+  <a class="btn sm page-back auth-back-btn" href="<?= h(ru('login.php')) ?>">&larr; Back to log in</a>
+</div>
 <section class="panel auth-single">
   <div class="auth-head">
     <h1><?= $pending ? 'Reset your password' : 'Forgot password?' ?></h1>

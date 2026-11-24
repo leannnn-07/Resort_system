@@ -42,19 +42,21 @@ foreach ($rows as $r) {
     }
 }
 
-$form       = ['first_name' => '', 'last_name' => '', 'email' => '', 'phone' => '', 'address' => ''];
+$form       = ['first_name' => '', 'middle_name' => '', 'last_name' => '', 'email' => '', 'phone' => '', 'address' => ''];
 $bookerType = 'Adult';
+$discountChoice = 'none';
 $compValues = $svcOn = $svcQty = $reqs = [];   // each keyed by stay id
 $error      = '';
 $notice     = '';
 
 $acct = current_guest($pdo);
 if ($acct) {
-    $form['first_name'] = $acct['first_name'];
-    $form['last_name']  = $acct['last_name'];
-    $form['email']      = $acct['email'];
-    $form['phone']      = (string)($acct['phone'] ?? '');
-    $form['address']    = (string)($acct['address'] ?? '');
+    $form['first_name']  = $acct['first_name'];
+    $form['middle_name'] = (string)($acct['middle_name'] ?? '');
+    $form['last_name']   = $acct['last_name'];
+    $form['email']       = $acct['email'];
+    $form['phone']       = (string)($acct['phone'] ?? '');
+    $form['address']     = (string)($acct['address'] ?? '');
 }
 
 // ---------- Email verification state ----------
@@ -70,7 +72,7 @@ if ($pending && ($pending['sig'] ?? '') !== $sig) {
 function trip_form_from_data(array $d): array
 {
     $g = $d['guest'];
-    $form = ['first_name' => $g['first_name'], 'last_name' => $g['last_name'], 'email' => $g['email'], 'phone' => $g['phone'], 'address' => $g['address']];
+    $form = ['first_name' => $g['first_name'], 'middle_name' => (string)($g['middle_name'] ?? ''), 'last_name' => $g['last_name'], 'email' => $g['email'], 'phone' => $g['phone'], 'address' => $g['address']];
     $comp = $on = $qty = $req = [];
     foreach ($d['extras'] as $id => $x) {
         $comp[$id] = companion_values($x['companions']);
@@ -160,17 +162,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $svcOn[$id]  = (array)($sp['svc_on'] ?? []);
                 $svcQty[$id] = (array)($sp['svc_qty'] ?? []);
                 $reqs[$id]   = $str($sp['requests'] ?? '');
-                if ($row['scope'] === 'Rooms') {
-                    $ct = (array)($sp['comp_type'] ?? []);
-                    $cf = (array)($sp['comp_first'] ?? []);
-                    $cl = (array)($sp['comp_last'] ?? []);
-                    foreach (companion_slots($row['adults'], $row['children']) as $i => $_) {
-                        $compValues[$id][$i] = ['type' => $str($ct[$i] ?? ''), 'first_name' => $str($cf[$i] ?? ''), 'last_name' => $str($cl[$i] ?? '')];
-                    }
+                $ct = array_values((array)($sp['comp_type'] ?? []));
+                $cf = array_values((array)($sp['comp_first'] ?? []));
+                $cm = array_values((array)($sp['comp_middle'] ?? []));
+                $cl = array_values((array)($sp['comp_last'] ?? []));
+                $postedComps = isset($sp['comp_present']) ? max(count($ct), count($cf), count($cl)) : count(companion_slots($row['adults'], $row['children']));
+                $compValues[$id] = [];
+                for ($i = 0; $i < $postedComps; $i++) {
+                    $compValues[$id][$i] = [
+                        'type'        => $str($ct[$i] ?? 'Adult'),
+                        'first_name'  => $str($cf[$i] ?? ''),
+                        'middle_name' => $str($cm[$i] ?? ''),
+                        'last_name'   => $str($cl[$i] ?? ''),
+                    ];
                 }
             }
 
-            if ($form['first_name'] === '' || mb_strlen($form['first_name']) > 60 || $form['last_name'] === '' || mb_strlen($form['last_name']) > 60) {
+            if ($form['first_name'] === '' || mb_strlen($form['first_name']) > 60 || $form['last_name'] === '' || mb_strlen($form['last_name']) > 60 || mb_strlen($form['middle_name']) > 60) {
                 throw new RuntimeException('Enter your first and last name.');
             }
             if (!filter_var($form['email'], FILTER_VALIDATE_EMAIL) || mb_strlen($form['email']) > 120) {
@@ -185,6 +193,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (empty($_POST['terms'])) {
                 throw new RuntimeException('Please accept the booking terms to continue.');
             }
+
+            $discountChoice = $str($_POST['discount_choice'] ?? 'none');
+            $claimedSeniors = max(1, (int)($_POST['claimed_senior_count'] ?? 1));
 
             $extras = [];
             foreach ($rows as $row) {
@@ -205,16 +216,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $chosen[$sid] = $q;
                         }
                     }
-                    $comp = $row['scope'] === 'Rooms' ? parse_companions($sp, $row['adults'], $row['children'], true) : [];
+                    $maxStayCap = max(1, (int)$row['capacity']);
+                    $comp = parse_companions($sp, $row['adults'], $row['children'], true, $maxStayCap);
+                    [$numA, $numC] = party_counts($bookerType, $comp, $row['adults'], $row['children'], true);
+                    $stayGuests = max(1, $numA + $numC);
+                    $stayDisc = parse_discount_application(
+                        $pdo,
+                        (int)$row['resort']['resort_id'],
+                        (string)$row['check_in'],
+                        $discountChoice,
+                        $stayGuests,
+                        min($stayGuests, $claimedSeniors)
+                    );
                 } catch (RuntimeException $e) {
                     throw new RuntimeException(trip_stay_name($row) . ': ' . $e->getMessage());
                 }
-                $extras[$id] = ['companions' => $comp, 'services' => $chosen, 'requests' => $reqs[$id]];
+                $extras[$id] = ['companions' => $comp, 'adults' => $numA, 'children' => $numC, 'services' => $chosen, 'requests' => $reqs[$id], 'discount' => $stayDisc];
             }
 
             $data = [
                 'guest' => [
-                    'first_name' => $form['first_name'], 'last_name' => $form['last_name'], 'email' => strtolower($form['email']),
+                    'first_name' => $form['first_name'], 'middle_name' => $form['middle_name'], 'last_name' => $form['last_name'], 'email' => strtolower($form['email']),
                     'phone' => $form['phone'], 'address' => $form['address'], 'booker_type' => $bookerType,
                 ],
                 'extras' => $extras,
@@ -334,9 +356,10 @@ site_start('Book your trip', 'trip', 'no-nav');
             <p class="pay-sec-sub">Format: Last name, First name. Applied to all stays in this trip.</p>
           </div>
         </div>
-        <div class="grid-form two-col">
+        <div class="grid-form three-col-mix">
           <label><span>Last name</span><input placeholder="e.g. Santos" name="last_name" value="<?= h($form['last_name']) ?>" maxlength="60" autocomplete="family-name" required></label>
           <label><span>First name</span><input placeholder="e.g. Maria" name="first_name" value="<?= h($form['first_name']) ?>" maxlength="60" autocomplete="given-name" required></label>
+          <label><span>Middle name <small class="muted">(optional)</small></span><input placeholder="e.g. Cruz" name="middle_name" value="<?= h($form['middle_name']) ?>" maxlength="60" autocomplete="additional-name"></label>
         </div>
         <div class="grid-form three-col-mix" style="margin-top:12px">
           <label><span>Email</span><input placeholder="e.g. maria@example.com" type="email" name="email" value="<?= h($form['email']) ?>" maxlength="120" autocomplete="email" required<?= $acct ? ' readonly' : '' ?>></label>
@@ -350,7 +373,7 @@ site_start('Book your trip', 'trip', 'no-nav');
           <span class="pay-sec-num">2</span>
           <div>
             <h2 class="pay-sec-title">Stays &amp; optional add-ons</h2>
-            <p class="pay-sec-sub">Review each stay and add extras if needed.</p>
+            <p class="pay-sec-sub">Review each stay, enter other guests’ full names, and add extras if needed.</p>
           </div>
         </div>
       <?php foreach ($rows as $k => $row):
@@ -364,11 +387,12 @@ site_start('Book your trip', 'trip', 'no-nav');
           <span class="muted"><?= $row['scope'] === 'Cottage' ? h(fdate($row['check_in'])) . ' · Day use' : h(fdate($row['check_in'])) . ' to ' . h(fdate($row['check_out'])) ?> · <?= h(plural($row['adults'] + $row['children'], 'guest')) ?></span></p>
         <?php if (!empty($row['resort']['location'])): ?><p class="muted" style="margin:0 0 8px;font-size:12.5px"><?= h($row['resort']['location']) ?></p><?php endif; ?>
 
-        <?php if ($row['scope'] === 'Rooms'): ?>
-          <?= companion_fields($row['adults'], $row['children'], $compValues[$id] ?? [], true, $ns) ?>
-        <?php else: ?>
+        <?php if ($row['scope'] !== 'Rooms'): ?>
           <p class="ck-stay-note">Up to <?= (int)$row['capacity'] ?> guests (<?= h(plural($row['adults'] + $row['children'], 'guest')) ?> arriving).</p>
+        <?php else: ?>
+          <p class="ck-stay-note">Sleeps up to <?= (int)$row['capacity'] ?> guests.</p>
         <?php endif; ?>
+        <?= companion_fields($row['adults'], $row['children'], $compValues[$id] ?? [], true, $ns, (int)$row['capacity']) ?>
 
         <details class="tfs-more"<?= $has ? ' open' : '' ?>>
           <summary>Add-ons and requests <small class="muted">(optional)</small></summary>
@@ -391,6 +415,29 @@ site_start('Book your trip', 'trip', 'no-nav');
         </details>
       </fieldset>
       <?php endforeach; ?>
+      </div>
+
+      <div class="pay-section">
+        <div class="pay-sec-head">
+          <span class="pay-sec-num">3</span>
+          <div>
+            <h2 class="pay-sec-title">Over-the-Counter Discounts <small class="muted">(optional)</small></h2>
+            <p class="pay-sec-sub">Initial online downpayment uses the regular rate. No ID photo upload is needed—Senior Citizen (RA 9994) and PWD discounts are verified and approved over the counter by staff, admin, or superadmin.</p>
+          </div>
+        </div>
+        <label><span>Discount / claim type</span>
+          <select name="discount_choice" id="discount-choice">
+            <option value="none" data-is-statutory="0"<?= $discountChoice === 'none' ? ' selected' : '' ?>>No discount (regular rate)</option>
+            <option value="Senior" data-is-statutory="1"<?= $discountChoice === 'Senior' ? ' selected' : '' ?>>Senior Citizen Discount — RA 9994 (20% off + 12% VAT-exempt pro-rated share · verified over the counter)</option>
+            <option value="PWD" data-is-statutory="1"<?= $discountChoice === 'PWD' ? ' selected' : '' ?>>PWD Discount (20% off + 12% VAT-exempt pro-rated share · verified over the counter)</option>
+          </select>
+        </label>
+        <div id="discount-id-wrap" style="margin-top:12px"<?= in_array($discountChoice, ['Senior', 'PWD'], true) ? '' : ' hidden' ?>>
+          <label><span>Number of Senior / PWD occupants</span>
+            <input type="number" name="claimed_senior_count" value="1" min="1" max="50" step="1">
+          </label>
+          <p class="muted" style="margin:6px 0 0;font-size:13px">No ID upload needed online. Staff, admin, or superadmin will verify and approve the discount over the counter.</p>
+        </div>
       </div>
 
       <div class="ck-terms-box">
@@ -459,6 +506,18 @@ site_start('Book your trip', 'trip', 'no-nav');
     row.querySelectorAll('input').forEach(function (i) { i.addEventListener('input', update); i.addEventListener('change', update); });
   });
   update();
+})();
+(function () {
+  var discSel = document.getElementById('discount-choice');
+  var discWrap = document.getElementById('discount-id-wrap');
+  if (!discSel) return;
+  function syncDisc() {
+    var opt = discSel.selectedOptions && discSel.selectedOptions[0];
+    var isStat = opt && opt.getAttribute('data-is-statutory') === '1';
+    if (discWrap) discWrap.hidden = !isStat;
+  }
+  discSel.addEventListener('change', syncDisc);
+  syncDisc();
 })();
 </script>
 <?php site_end();

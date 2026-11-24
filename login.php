@@ -85,7 +85,11 @@ site_start('Log in', 'account', 'no-nav');
 echo auth_gate_popup($next);   // "Create an account first to book" when sent here from a booking page
 $q = $next !== 'resorts.php' ? '?next=' . urlencode($next) : '';
 $authBg = is_file(__DIR__ . '/assets/resorts/vista-del-mar.jpg') ? 'assets/resorts/vista-del-mar.jpg' : 'assets/landing.jpg';
+$backUrl = auth_back_url();
 ?>
+<div class="auth-outer-bar">
+  <a class="btn sm page-back auth-back-btn" href="<?= h($backUrl) ?>" data-auth-back>&larr; Back</a>
+</div>
 <div class="auth-shell">
   <aside class="auth-visual" style="background-image:url('<?= h($authBg) ?>')" aria-hidden="true">
     <div class="auth-v-top">

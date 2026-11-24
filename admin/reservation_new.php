@@ -5,7 +5,7 @@ require_once __DIR__ . '/../includes/payments.php';
 $staffMember = require_login($pdo);
 
 $RID = resort_id();
-$guests = $pdo->query("SELECT guest_id, CONCAT(last_name, ', ', first_name, ' (', email, ')') FROM guest
+$guests = $pdo->query("SELECT guest_id, CONCAT(last_name, ', ', first_name, IF(middle_name IS NOT NULL AND middle_name <> '', CONCAT(' ', middle_name), ''), ' (', email, ')') FROM guest
                         WHERE archived_at IS NULL AND (created_resort_id = $RID OR EXISTS (SELECT 1 FROM reservation v WHERE v.guest_id = guest.guest_id AND v.resort_id = $RID))
                         ORDER BY last_name, first_name")
               ->fetchAll(PDO::FETCH_KEY_PAIR);
@@ -58,11 +58,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $gStmt = $pdo->prepare('SELECT * FROM guest WHERE guest_id = ?');
             $gStmt->execute([$guestId]);
             $g = $gStmt->fetch();
+            $bt = clean_booker_type($_POST['booker_type'] ?? 'Adult');
+            $companions = parse_companions($_POST, $adults, $children, false, 50);
+            [$numAdults, $numChildren] = party_counts($bt, $companions, $adults, $children, !empty($companions) || isset($_POST['comp_present']));
             $made = create_online_booking($pdo, [
                 'scope' => 'Cottage', 'target_id' => $cotPick, 'check_in' => $in, 'check_out' => add_days($in, 1),
-                'adults' => $adults, 'children' => $children, 'first_name' => $g['first_name'], 'last_name' => $g['last_name'],
+                'adults' => $numAdults, 'children' => $numChildren, 'first_name' => $g['first_name'], 'middle_name' => (string)($g['middle_name'] ?? ''), 'last_name' => $g['last_name'],
                 'email' => strtolower($g['email']), 'phone' => (string)($g['phone'] ?? ''), 'address' => (string)($g['address'] ?? ''),
-                'requests' => $requests, 'services' => [], 'companions' => [], 'booker_type' => clean_booker_type($_POST['booker_type'] ?? 'Adult'),
+                'requests' => $requests, 'services' => [], 'companions' => $companions, 'booker_type' => $bt,
                 'skip_notif' => true,
             ]);
             $pdo->prepare("UPDATE reservation SET source = 'Staff', staff_id = ?, required_downpayment = 0 WHERE reservation_id = ?")
@@ -77,11 +80,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $gStmt = $pdo->prepare('SELECT * FROM guest WHERE guest_id = ?');
             $gStmt->execute([$guestId]);
             $g = $gStmt->fetch();
+            $bt = clean_booker_type($_POST['booker_type'] ?? 'Adult');
+            $companions = parse_companions($_POST, $adults, $children, false, 500);
+            [$numAdults, $numChildren] = party_counts($bt, $companions, $adults, $children, !empty($companions) || isset($_POST['comp_present']));
             $made = create_online_booking($pdo, [
                 'scope' => $wScope, 'target_id' => (int)$wId, 'check_in' => $in, 'check_out' => $out,
-                'adults' => $adults, 'children' => $children, 'first_name' => $g['first_name'], 'last_name' => $g['last_name'],
+                'adults' => $numAdults, 'children' => $numChildren, 'first_name' => $g['first_name'], 'middle_name' => (string)($g['middle_name'] ?? ''), 'last_name' => $g['last_name'],
                 'email' => strtolower($g['email']), 'phone' => (string)($g['phone'] ?? ''), 'address' => (string)($g['address'] ?? ''),
-                'requests' => $requests, 'services' => [], 'companions' => [], 'booker_type' => clean_booker_type($_POST['booker_type'] ?? 'Adult'),
+                'requests' => $requests, 'services' => [], 'companions' => $companions, 'booker_type' => $bt,
                 'skip_notif' => true,
             ]);
             $pdo->prepare("UPDATE reservation SET source = 'Staff', staff_id = ?, required_downpayment = 0 WHERE reservation_id = ?")
@@ -95,7 +101,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             throw new RuntimeException('Select at least one room, or choose a whole place.');
         }
         $bookerType = clean_booker_type($_POST['booker_type'] ?? 'Adult');
-        $companions = parse_companions($_POST, $adults, $children, false);
+        $companions = parse_companions($_POST, $adults, $children, false, 50);
 
         $pdo->exec('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
         $pdo->beginTransaction();
@@ -119,7 +125,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $capacity += (int)$r['max_occupancy'];
         }
-        if ($guestsCnt > $capacity) {
+        [$numAdults, $numChildren] = party_counts($bookerType, $companions, $adults, $children, !empty($companions) || isset($_POST['comp_present']));
+        $effectiveGuests = $numAdults + $numChildren;
+        if ($effectiveGuests > $capacity) {
             throw new RuntimeException('The selected rooms sleep ' . $capacity . ' guests. Add a room or lower the number of guests.');
         }
 
@@ -135,7 +143,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         $ref = new_booking_ref($pdo);
-        [$numAdults, $numChildren] = party_counts($bookerType, $companions, $adults, $children);
         $pdo->prepare(
             "INSERT INTO reservation (resort_id, booking_ref, guest_id, staff_id, booking_date, check_in_date, check_out_date,
                                       num_adults, num_children, booker_type, special_requests, source, status)
@@ -339,14 +346,26 @@ admin_start('New reservation', 'reservations');
       <label class="wide"><span>Special requests</span>
         <textarea name="special_requests" rows="2" maxlength="500" placeholder="Optional, e.g. Late arrival, celebration, dietary needs"><?= h($_POST['special_requests'] ?? '') ?></textarea>
       </label>
-      <?php if (!$isCottage):
+      <?php
         $pv = [];
-        foreach (companion_slots($adults, $children) as $i => $_) {
-            $pv[$i] = ['type' => $_POST['comp_type'][$i] ?? '', 'first_name' => $_POST['comp_first'][$i] ?? '', 'last_name' => $_POST['comp_last'][$i] ?? ''];
+        $ct = array_values((array)($_POST['comp_type'] ?? []));
+        $cf = array_values((array)($_POST['comp_first'] ?? []));
+        $cm = array_values((array)($_POST['comp_middle'] ?? []));
+        $cl = array_values((array)($_POST['comp_last'] ?? []));
+        $postedComps = isset($_POST['comp_present']) ? max(count($ct), count($cf), count($cl)) : count(companion_slots($adults, $children));
+        for ($i = 0; $i < $postedComps; $i++) {
+            $pv[$i] = [
+                'type'        => $ct[$i] ?? 'Adult',
+                'first_name'  => $cf[$i] ?? '',
+                'middle_name' => $cm[$i] ?? '',
+                'last_name'   => $cl[$i] ?? '',
+            ];
         }
+        $maxNewCap = $isCottage
+            ? ($cottages ? max(array_map(fn($c) => (int)$c['max_guests'], $cottages)) : 25)
+            : max(25, array_sum(array_map(fn($r) => (int)$r['max_occupancy'], $available)));
       ?>
-      <div class="wide"><?= companion_fields($adults, $children, $pv, false) ?></div>
-      <?php endif; ?>
+      <div class="wide"><?= companion_fields($adults, $children, $pv, false, '', $maxNewCap) ?></div>
       <div class="actions wide">
         <button class="btn primary" type="submit" data-confirm="Create this reservation now?" data-confirm-title="Create reservation" data-confirm-ok="Yes, create it">Create reservation</button>
         <a class="btn" href="guests.php">Add a new guest</a>

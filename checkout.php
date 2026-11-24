@@ -21,13 +21,15 @@ $editId  = 0;
 
 $services = $pdo->query('SELECT * FROM service WHERE resort_id = ' . resort_id() . ' AND archived_at IS NULL ORDER BY category, service_name')->fetchAll();
 $form = [
-    'first_name' => '', 'last_name' => '', 'email' => '', 'phone' => '', 'address' => '', 'requests' => '',
+    'first_name' => '', 'middle_name' => '', 'last_name' => '', 'email' => '', 'phone' => '', 'address' => '', 'requests' => '',
 ];
 $svcOn  = [];
 $svcQty = [];
 $error  = '';
 $compValues = [];
 $bookerType = 'Adult';
+$discountChoice = 'none';
+$claimedSeniors = 1;
 $type = null;
 $target = null;
 $cottage = null;
@@ -35,7 +37,7 @@ $cottageEnt = ['adult_rate' => 0.0, 'child_rate' => 0.0, 'total' => 0.0];
 
 if ($editRef !== '') {
     $eStmt = $pdo->prepare(
-        "SELECT v.*, g.first_name, g.last_name, g.email, g.phone, g.address,
+        "SELECT v.*, g.first_name, g.middle_name, g.last_name, g.email, g.phone, g.address,
                 (SELECT b.name FROM building b WHERE b.building_id = v.building_id) AS building_name,
                 (SELECT p.name FROM reservation_pool rp JOIN pool p ON p.pool_id = rp.pool_id WHERE rp.reservation_id = v.reservation_id LIMIT 1) AS pool_name
            FROM reservation v JOIN guest g ON g.guest_id = v.guest_id
@@ -83,20 +85,32 @@ if ($editRef !== '') {
             'capacity' => (int)($rc['max_guests'] ?? max(15, $guests)),
             'free'     => true,
         ];
-        $cottageEnt = ['adult_rate' => 0.0, 'child_rate' => 0.0, 'total' => (float)($rc['entrance_total'] ?? 0)];
+        $cottageEnt = cottage_entrance_total($pdo, resort_id(), $adults, $children);
         $n          = 1;
         $roomTotal  = round($cottage['rate'] + $cottageEnt['total'], 2);
+        $maxGuests  = max(1, (int)$cottage['capacity']);
     } elseif ($isEx) {
         $n = max(1, nights($in, $out));
         $svcSumStmt = $pdo->prepare('SELECT COALESCE(SUM(price_charged), 0) FROM reservation_service WHERE reservation_id = ?');
         $svcSumStmt->execute([$editId]);
         $roomTotal = max(0.0, round((float)$editRes['total_amount'] - (float)$svcSumStmt->fetchColumn(), 2));
+        $exCap = 0;
+        if ($scope === 'Pool') {
+            $pCapStmt = $pdo->prepare('SELECT COALESCE(SUM(p.max_guests), 0) FROM reservation_pool rp JOIN pool p ON p.pool_id = rp.pool_id WHERE rp.reservation_id = ?');
+            $pCapStmt->execute([$editId]);
+            $exCap = (int)$pCapStmt->fetchColumn();
+        } else {
+            $rCapStmt = $pdo->prepare("SELECT COALESCE(SUM(t.max_occupancy), 0) FROM reservation_room rr JOIN room r ON r.room_id = rr.room_id JOIN room_type t ON t.room_type_id = r.room_type_id WHERE rr.reservation_id = ? AND r.status <> 'Maintenance'");
+            $rCapStmt->execute([$editId]);
+            $exCap = (int)$rCapStmt->fetchColumn();
+        }
         $target = [
             'name'     => (string)($editRes['building_name'] ?: $editRes['pool_name'] ?: $config['resort']),
-            'capacity' => max(1, $guests),
+            'capacity' => max($guests, $exCap, 1),
             'rate'     => round($roomTotal / $n, 2),
             'free'     => true,
         ];
+        $maxGuests = (int)$target['capacity'];
     } else {
         $rrStmt = $pdo->prepare(
             'SELECT t.*, COUNT(*) AS qty, SUM(rr.rate_applied) AS nightly_sum
@@ -112,26 +126,34 @@ if ($editRef !== '') {
         $roomsReq  = max(1, (int)($type['qty'] ?? 1));
         $n         = max(1, nights($in, $out));
         $roomTotal = round((float)($type['nightly_sum'] ?? 0) * $n, 2);
+        $maxGuests = max($guests, $roomsReq * (int)$type['max_occupancy']);
     }
 
     $form = [
-        'first_name' => (string)$editRes['first_name'],
-        'last_name'  => (string)$editRes['last_name'],
-        'email'      => (string)$editRes['email'],
-        'phone'      => (string)($editRes['phone'] ?? ''),
-        'address'    => (string)($editRes['address'] ?? ''),
-        'requests'   => (string)($editRes['special_requests'] ?? ''),
+        'first_name'  => (string)$editRes['first_name'],
+        'middle_name' => (string)($editRes['middle_name'] ?? ''),
+        'last_name'   => (string)$editRes['last_name'],
+        'email'       => (string)$editRes['email'],
+        'phone'       => (string)($editRes['phone'] ?? ''),
+        'address'     => (string)($editRes['address'] ?? ''),
+        'requests'    => (string)($editRes['special_requests'] ?? ''),
     ];
     $bookerType = clean_booker_type((string)($editRes['booker_type'] ?? 'Adult'));
+    $claimedSeniors = max(1, (int)($editRes['claimed_senior_count'] ?: 1));
+    if (!empty($editRes['discount_type'])) {
+        if ($editRes['discount_type'] === 'Special' && !empty($editRes['discount_offer_id'])) {
+            $discountChoice = 'Special:' . (int)$editRes['discount_offer_id'];
+        } elseif (in_array($editRes['discount_type'], ['Senior', 'PWD'], true)) {
+            $discountChoice = (string)$editRes['discount_type'];
+        }
+    }
     $existingSvcs = $pdo->prepare('SELECT service_id, quantity FROM reservation_service WHERE reservation_id = ?');
     $existingSvcs->execute([$editId]);
     foreach ($existingSvcs->fetchAll() as $es) {
         $svcOn[(int)$es['service_id']]  = 1;
         $svcQty[(int)$es['service_id']] = (int)$es['quantity'];
     }
-    if (!$isCottage && !$isEx) {
-        $compValues = companion_values(reservation_companions($pdo, $editId));
-    }
+    $compValues = companion_values(load_companions($pdo, $editId));
     $hid = ['edit' => $editRef];
 } else {
     $scope    = (string)($_POST['scope'] ?? $_GET['scope'] ?? 'Rooms');
@@ -198,6 +220,7 @@ if ($editRef !== '') {
         $n          = 1;
         $cottageEnt = cottage_entrance_total($pdo, resort_id(), $adults, $children);
         $roomTotal  = round($cottage['rate'] + $cottageEnt['total'], 2);
+        $maxGuests  = max(1, (int)$cottage['capacity']);
     } elseif ($isEx) {
         $target = exclusive_target($pdo, $scope, $targetId, $in, $out);
         if (!$target || !$target['free']) {
@@ -211,6 +234,7 @@ if ($editRef !== '') {
         $roomsReq  = 1;
         $n         = nights($in, $out);
         $roomTotal = $target['rate'] * $n;
+        $maxGuests = max(1, (int)$target['capacity']);
     } else {
         $stmt = $pdo->prepare('SELECT * FROM room_type WHERE room_type_id = ? AND resort_id = ?');
         $stmt->execute([$typeId, resort_id()]);
@@ -230,17 +254,19 @@ if ($editRef !== '') {
 
         $n         = nights($in, $out);
         $roomTotal = (float)$type['base_rate'] * $n * $roomsReq;
+        $maxGuests = max($guests, $roomsReq * (int)$type['max_occupancy']);
     }
     $hid = ['type' => $typeId, 'rooms' => $roomsReq, 'check_in' => $in, 'check_out' => $out, 'adults' => $adults, 'children' => $children,
             'scope' => $scope, 'target' => $targetId];
 
     // Signed-in guests: fill in their details, and their email is already verified.
     if ($acct) {
-        $form['first_name'] = $acct['first_name'];
-        $form['last_name']  = $acct['last_name'];
-        $form['email']      = $acct['email'];
-        $form['phone']      = (string)($acct['phone'] ?? '');
-        $form['address']    = (string)($acct['address'] ?? '');
+        $form['first_name']  = $acct['first_name'];
+        $form['middle_name'] = (string)($acct['middle_name'] ?? '');
+        $form['last_name']   = $acct['last_name'];
+        $form['email']       = $acct['email'];
+        $form['phone']       = (string)($acct['phone'] ?? '');
+        $form['address']     = (string)($acct['address'] ?? '');
     }
 }
 
@@ -322,13 +348,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $svcOn  = (array)($_POST['svc_on'] ?? []);
             $svcQty = (array)($_POST['svc_qty'] ?? []);
-            $cf = (array)($_POST['comp_first'] ?? []);
-            $cl = (array)($_POST['comp_last'] ?? []);
-            foreach (($isEx || $isCottage) ? [] : companion_slots($adults, $children) as $i => $_) {
-                $compValues[$i] = ['type' => (string)(($_POST['comp_type'] ?? [])[$i] ?? ''), 'first_name' => trim((string)($cf[$i] ?? '')), 'last_name' => trim((string)($cl[$i] ?? ''))];
+            $ct = array_values((array)($_POST['comp_type'] ?? []));
+            $cf = array_values((array)($_POST['comp_first'] ?? []));
+            $cm = array_values((array)($_POST['comp_middle'] ?? []));
+            $cl = array_values((array)($_POST['comp_last'] ?? []));
+            $postedComps = isset($_POST['comp_present']) ? max(count($ct), count($cf), count($cl)) : count(companion_slots($adults, $children));
+            $compValues = [];
+            for ($i = 0; $i < $postedComps; $i++) {
+                $compValues[$i] = [
+                    'type'        => (string)($ct[$i] ?? 'Adult'),
+                    'first_name'  => trim((string)($cf[$i] ?? '')),
+                    'middle_name' => trim((string)($cm[$i] ?? '')),
+                    'last_name'   => trim((string)($cl[$i] ?? '')),
+                ];
             }
 
-            if ($form['first_name'] === '' || mb_strlen($form['first_name']) > 60 || $form['last_name'] === '' || mb_strlen($form['last_name']) > 60) {
+            if ($form['first_name'] === '' || mb_strlen($form['first_name']) > 60 || $form['last_name'] === '' || mb_strlen($form['last_name']) > 60 || mb_strlen($form['middle_name']) > 60) {
                 throw new RuntimeException('Enter your first and last name.');
             }
             if (!filter_var($form['email'], FILTER_VALIDATE_EMAIL) || mb_strlen($form['email']) > 120) {
@@ -360,16 +395,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             $bookerType = clean_booker_type($_POST['booker_type'] ?? 'Adult');
-            $companions = ($isEx || $isCottage) ? [] : parse_companions($_POST, $adults, $children, true);
+            $companions = parse_companions($_POST, $adults, $children, true, $maxGuests);
+            [$numAdults, $numChildren] = party_counts($bookerType, $companions, $adults, $children, true);
+            $adults   = $numAdults;
+            $children = $numChildren;
+            $guests   = $adults + $children;
+            if ($isCottage) {
+                $cottageEnt = cottage_entrance_total($pdo, resort_id(), $adults, $children);
+                $roomTotal  = round($cottage['rate'] + $cottageEnt['total'], 2);
+            }
+            $discountChoice = (string)($_POST['discount_choice'] ?? 'none');
+            $claimedSeniors = max(1, min($guests, (int)($_POST['claimed_senior_count'] ?? 1)));
+            $discountData = parse_discount_application(
+                $pdo,
+                resort_id(),
+                $in,
+                $discountChoice,
+                $guests,
+                $claimedSeniors
+            );
 
             if ($isEdit && $editRes) {
                 $pdo->beginTransaction();
                 try {
-                    $pdo->prepare('UPDATE guest SET first_name = ?, last_name = ?, phone = ? WHERE guest_id = ?')
-                        ->execute([$form['first_name'], $form['last_name'], $form['phone'] ?: null, (int)$editRes['guest_id']]);
-                    [$numAdults, $numChildren] = party_counts($bookerType, $companions, $adults, $children);
+                    $pdo->prepare('UPDATE guest SET first_name = ?, middle_name = ?, last_name = ?, phone = ? WHERE guest_id = ?')
+                        ->execute([$form['first_name'], $form['middle_name'] !== '' ? $form['middle_name'] : null, $form['last_name'], $form['phone'] ?: null, (int)$editRes['guest_id']]);
                     $pdo->prepare('UPDATE reservation SET num_adults = ?, num_children = ?, booker_type = ?, special_requests = ? WHERE reservation_id = ?')
                         ->execute([$numAdults, $numChildren, $bookerType, $form['requests'] !== '' ? $form['requests'] : null, $editId]);
+                    if ($isCottage) {
+                        $pdo->prepare('UPDATE reservation_cottage SET entrance_total = ? WHERE reservation_id = ?')
+                            ->execute([$cottageEnt['total'], $editId]);
+                    }
 
                     $pdo->prepare('DELETE FROM reservation_service WHERE reservation_id = ?')->execute([$editId]);
                     if ($chosen) {
@@ -384,14 +440,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
                     }
 
-                    if (!$isEx && !$isCottage) {
-                        save_companions($pdo, $editId, $companions);
-                    }
+                    $pdo->prepare('DELETE FROM reservation_companion WHERE reservation_id = ?')->execute([$editId]);
+                    save_companions($pdo, $editId, $companions);
+                    apply_reservation_discount_data($pdo, $editId, $discountData);
                     recalc_total($pdo, $editId);
-                    $totStmt = $pdo->prepare('SELECT total_amount FROM reservation WHERE reservation_id = ?');
-                    $totStmt->execute([$editId]);
-                    $newTotal = (float)$totStmt->fetchColumn();
-                    $newReqDp = $onlinePayOn ? calc_downpayment($newTotal, $dpPct) : 0.0;
+                    // Rule 1: Downpayment during online checkout is strictly calculated from the REGULAR (non-discounted) subtotal.
+                    $grossSub = reservation_gross_subtotal($pdo, $editId);
+                    $newReqDp = $onlinePayOn ? calc_downpayment($grossSub, $dpPct) : 0.0;
                     $pdo->prepare('UPDATE reservation SET required_downpayment = ? WHERE reservation_id = ?')
                         ->execute([$newReqDp, $editId]);
                     $pdo->commit();
@@ -412,9 +467,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $data = [
                 'scope' => $scope, 'target_id' => $targetId, 'type_id' => $typeId, 'rooms' => $roomsReq,
                 'check_in' => $in, 'check_out' => $out, 'adults' => $adults, 'children' => $children,
-                'first_name' => $form['first_name'], 'last_name' => $form['last_name'],
+                'first_name' => $form['first_name'], 'middle_name' => $form['middle_name'], 'last_name' => $form['last_name'],
                 'email' => strtolower($form['email']), 'phone' => $form['phone'], 'address' => $form['address'],
                 'requests' => $form['requests'], 'services' => $chosen, 'companions' => $companions, 'booker_type' => $bookerType,
+                'discount' => $discountData,
             ];
 
             if ($verifyOn && empty($_SESSION['verified_emails'][$data['email']])) {
@@ -452,7 +508,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } catch (RuntimeException $e) {
                 // Email is verified but the booking failed (for example the room was just taken): back to the form.
                 $d = $pending['data'];
-                $form = ['first_name' => $d['first_name'], 'last_name' => $d['last_name'], 'email' => $d['email'],
+                $form = ['first_name' => $d['first_name'], 'middle_name' => (string)($d['middle_name'] ?? ''), 'last_name' => $d['last_name'], 'email' => $d['email'],
                          'phone' => $d['phone'], 'address' => $d['address'], 'requests' => $d['requests']];
                 $compValues = companion_values($d['companions'] ?? []);
                 $bookerType = $d['booker_type'] ?? 'Adult';
@@ -473,7 +529,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $notice  = 'We sent you a new code.';
         } elseif ($pending && $action === 'edit') {
             $d = $pending['data'];
-            $form = ['first_name' => $d['first_name'], 'last_name' => $d['last_name'], 'email' => $d['email'],
+            $form = ['first_name' => $d['first_name'], 'middle_name' => (string)($d['middle_name'] ?? ''), 'last_name' => $d['last_name'], 'email' => $d['email'],
                      'phone' => $d['phone'], 'address' => $d['address'], 'requests' => $d['requests']];
             $compValues = companion_values($d['companions'] ?? []);
             $bookerType = $d['booker_type'] ?? 'Adult';
@@ -572,9 +628,10 @@ site_start('Your details', 'rooms', 'no-nav');
           <p class="pay-sec-sub">Format: Last name, First name. Used on your booking confirmation.</p>
         </div>
       </div>
-      <div class="grid-form two-col">
+      <div class="grid-form three-col-mix">
         <label><span>Last name</span><input placeholder="e.g. Santos" name="last_name" value="<?= h($form['last_name']) ?>" maxlength="60" autocomplete="family-name" required></label>
         <label><span>First name</span><input placeholder="e.g. Maria" name="first_name" value="<?= h($form['first_name']) ?>" maxlength="60" autocomplete="given-name" required></label>
+        <label><span>Middle name <small class="muted">(optional)</small></span><input placeholder="e.g. Cruz" name="middle_name" value="<?= h($form['middle_name']) ?>" maxlength="60" autocomplete="additional-name"></label>
       </div>
       <div class="grid-form three-col-mix" style="margin-top:12px">
         <label><span>Email</span><input placeholder="e.g. maria@example.com" type="email" name="email" value="<?= h($form['email']) ?>" maxlength="120" autocomplete="email" required<?= $acct ? ' readonly' : '' ?>></label>
@@ -582,12 +639,13 @@ site_start('Your details', 'rooms', 'no-nav');
         <?= booker_type_field($bookerType) ?>
       </div>
       <?php if ($isCottage): ?>
-        <p class="ck-stay-note">1× <?= h($cottage['name']) ?> · <?= h(plural($guests, 'guest')) ?> arriving (up to <?= (int)$cottage['capacity'] ?> guests).</p>
+        <p class="ck-stay-note">1× <?= h($cottage['name']) ?> · <span data-summary-guests><?= h(plural($guests, 'guest')) ?></span> arriving (up to <?= (int)$cottage['capacity'] ?> guests).</p>
       <?php elseif ($isEx): ?>
         <p class="ck-stay-note"><?= h(BOOKING_SCOPES[$scope]) ?> · up to <?= (int)$target['capacity'] ?> guests.</p>
       <?php else: ?>
-        <?= companion_fields($adults, $children, $compValues, true) ?>
+        <p class="ck-stay-note"><?= h($type['type_name']) ?> × <?= $roomsReq ?> · sleeps up to <?= (int)$maxGuests ?> guests.</p>
       <?php endif; ?>
+      <?= companion_fields($adults, $children, $compValues, true, '', $maxGuests) ?>
     </div>
 
     <div class="pay-section">
@@ -614,6 +672,39 @@ site_start('Your details', 'rooms', 'no-nav');
       <label style="margin-top:<?= $services ? '14px' : '0' ?>"><span>Special requests</span>
         <textarea name="requests" rows="2" maxlength="500" placeholder="Optional: late arrival, celebration, dietary needs…"><?= h($form['requests']) ?></textarea>
       </label>
+    </div>
+
+    <?php $specialOffers = active_special_discounts($pdo, resort_id(), $in); ?>
+    <div class="pay-section">
+      <div class="pay-sec-head">
+        <span class="pay-sec-num">3</span>
+        <div>
+          <h2 class="pay-sec-title">Over-the-Counter Discounts <small class="muted">(optional)</small></h2>
+          <p class="pay-sec-sub">Initial online downpayment uses the regular rate. No ID photo upload is required online—Senior Citizen (RA 9994), PWD, and Special Offer discounts are verified and approved over the counter by staff, admin, or superadmin.</p>
+        </div>
+      </div>
+      <label><span>Discount / claim type</span>
+        <select name="discount_choice" id="discount-choice" data-discount-select>
+          <option value="none" data-pct="0" data-is-statutory="0"<?= $discountChoice === 'none' ? ' selected' : '' ?>>No discount (regular rate)</option>
+          <option value="Senior" data-pct="<?= h((string)STATUTORY_DISCOUNT_PERCENT) ?>" data-is-statutory="1"<?= $discountChoice === 'Senior' ? ' selected' : '' ?>>Senior Citizen Discount — RA 9994 (20% off + 12% VAT-exempt pro-rated share · verified over the counter)</option>
+          <option value="PWD" data-pct="<?= h((string)STATUTORY_DISCOUNT_PERCENT) ?>" data-is-statutory="1"<?= $discountChoice === 'PWD' ? ' selected' : '' ?>>PWD Discount (20% off + 12% VAT-exempt pro-rated share · verified over the counter)</option>
+          <?php foreach ($specialOffers as $of):
+              $ofVal = 'Special:' . (int)$of['discount_id'];
+              $ofPct = rtrim(rtrim(number_format((float)$of['percent_off'], 2, '.', ''), '0'), '.');
+          ?>
+            <option value="<?= h($ofVal) ?>" data-pct="<?= h((string)$of['percent_off']) ?>" data-is-statutory="0"<?= $discountChoice === $ofVal ? ' selected' : '' ?>>
+              <?= h($of['title']) ?> (<?= h($ofPct) ?>% off original price<?= !empty($of['note']) ? ' · ' . h($of['note']) : '' ?>)
+            </option>
+          <?php endforeach; ?>
+        </select>
+      </label>
+
+      <div id="discount-id-wrap" style="margin-top:12px"<?= in_array($discountChoice, ['Senior', 'PWD'], true) ? '' : ' hidden' ?>>
+        <label><span>Number of Senior / PWD occupants <small class="muted">(out of <span data-max-pax><?= (int)$guests ?></span> total guests)</small></span>
+          <input type="number" name="claimed_senior_count" id="claimed-senior-count" value="<?= min($guests, max(1, $claimedSeniors)) ?>" min="1" max="<?= max(1, $guests) ?>" step="1">
+        </label>
+        <p class="muted" style="margin:6px 0 0;font-size:13px">No ID upload needed online. Simply present the Senior Citizen / PWD card over the counter upon arrival so staff, admin, or superadmin can approve the discount.</p>
+      </div>
     </div>
 
     <div class="ck-terms-box">
@@ -659,7 +750,7 @@ site_start('Your details', 'rooms', 'no-nav');
         <dt>Check-out</dt><dd><?= h(fdate($out)) ?><br><span class="muted">by <?= h($config['checkout_time']) ?></span></dd>
         <dt>Nights</dt><dd><?= $n ?></dd>
       <?php endif; ?>
-      <dt>Guests</dt><dd><?= h(plural($guests, 'guest')) ?></dd>
+      <dt>Guests</dt><dd data-summary-guests><?= h(plural($guests, 'guest')) ?></dd>
     </dl>
     <?php
       $initTotal     = $roomTotal + $addonSum;
@@ -669,14 +760,15 @@ site_start('Your details', 'rooms', 'no-nav');
     <dl class="facts totals">
       <?php if ($isCottage): ?>
         <dt>Cottage (× 1)</dt><dd class="num"><?= h(money($cottage['rate'])) ?></dd>
-        <?php if ($cottageEnt['total'] > 0.004): ?>
-          <dt>Entrance (<?= h(plural($guests, 'guest')) ?>)</dt><dd class="num"><?= h(money($cottageEnt['total'])) ?></dd>
-        <?php endif; ?>
+        <dt id="ent-row-lbl"<?= $cottageEnt['total'] > 0.004 ? '' : ' hidden' ?>>Entrance (<span data-summary-guests><?= h(plural($guests, 'guest')) ?></span>)</dt>
+        <dd class="num" id="ent-row-val"<?= $cottageEnt['total'] > 0.004 ? '' : ' hidden' ?>><?= h(money($cottageEnt['total'])) ?></dd>
       <?php else: ?>
         <dt><?= $isEx ? 'Price' : 'Rooms' ?></dt><dd class="num"><?= h(money($roomTotal)) ?></dd>
       <?php endif; ?>
       <dt>Add-ons</dt><dd class="num" id="addon-total"><?= h(money($addonSum)) ?></dd>
-      <dt>Total</dt><dd class="num strong" id="grand-total"><?= h(money($initTotal)) ?></dd>
+      <dt id="disc-est-label" hidden>Est. discount <small class="muted">(pending approval)</small></dt><dd class="num" id="disc-est-val" hidden>−<?= h(money(0)) ?></dd>
+      <dt>Original total</dt><dd class="num strong" id="grand-total"><?= h(money($initTotal)) ?></dd>
+      <dt id="net-est-label" hidden>Total after approval</dt><dd class="num strong" id="net-est-val" hidden><?= h(money($initTotal)) ?></dd>
     </dl>
     <?php if ($needsOnlinePay): ?>
     <div class="sum-highlight">
@@ -699,7 +791,12 @@ site_start('Your details', 'rooms', 'no-nav');
 <script>
 (function () {
   var cur = <?= json_encode($config['currency'], JSON_UNESCAPED_UNICODE) ?>;
+  var isCottage = <?= json_encode($isCottage) ?>;
+  var cottageBaseRate = <?= json_encode($isCottage ? (float)$cottage['rate'] : 0.0) ?>;
+  var adultEntRate = <?= json_encode($isCottage ? (float)$cottageEnt['adult_rate'] : 0.0) ?>;
+  var childEntRate = <?= json_encode($isCottage ? (float)$cottageEnt['child_rate'] : 0.0) ?>;
   var roomTotal = <?= json_encode($roomTotal) ?>;
+  var totalGuests = <?= json_encode(max(1, (int)$guests)) ?>;
   var needsDp = <?= json_encode($needsOnlinePay) ?>;
   var dpPct = <?= json_encode($dpPct) ?>;
   var rows = document.querySelectorAll('.addon-row');
@@ -707,9 +804,65 @@ site_start('Your details', 'rooms', 'no-nav');
   var grandEl = document.getElementById('grand-total');
   var dueNowEl = document.getElementById('due-now');
   var dueResEl = document.getElementById('due-resort');
-  if (!grandEl || !rows.length) return;
+  var discSel = document.getElementById('discount-choice');
+  var discWrap = document.getElementById('discount-id-wrap');
+  var srCountIn = document.getElementById('claimed-senior-count');
+  var discLblEl = document.getElementById('disc-est-label');
+  var discValEl = document.getElementById('disc-est-val');
+  var netLblEl = document.getElementById('net-est-label');
+  var netValEl = document.getElementById('net-est-val');
+  var entLblEl = document.getElementById('ent-row-lbl');
+  var entValEl = document.getElementById('ent-row-val');
+  var bookerTypeSel = document.querySelector('select[name="booker_type"]');
+  if (!grandEl) return;
 
   function fmt(v) { return cur + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+
+  function recalcPartyAndSenior(autoSelectSenior) {
+    var compTypeSels = document.querySelectorAll('select.comp-type');
+    var adultsCnt = 1; // primary booker is Adult or Senior
+    var childCnt = 0;
+    var sr = 0;
+    if (bookerTypeSel && bookerTypeSel.value === 'Senior') sr++;
+    compTypeSels.forEach(function (s) {
+      if (s.value === 'Child') {
+        childCnt++;
+      } else {
+        adultsCnt++;
+        if (s.value === 'Senior') sr++;
+      }
+    });
+    totalGuests = Math.max(1, adultsCnt + childCnt);
+    var guestLabel = totalGuests + (totalGuests === 1 ? ' guest' : ' guests');
+    document.querySelectorAll('[data-summary-guests]').forEach(function (el) { el.textContent = guestLabel; });
+    document.querySelectorAll('[data-max-pax]').forEach(function (el) { el.textContent = String(totalGuests); });
+    if (srCountIn) {
+      srCountIn.max = String(totalGuests);
+      if (parseInt(srCountIn.value, 10) > totalGuests) {
+        srCountIn.value = String(totalGuests);
+      }
+    }
+    if (isCottage) {
+      var entSum = Math.round((adultsCnt * adultEntRate + childCnt * childEntRate) * 100) / 100;
+      roomTotal = Math.round((cottageBaseRate + entSum) * 100) / 100;
+      if (entLblEl && entValEl) {
+        entLblEl.hidden = entSum <= 0.004;
+        entValEl.hidden = entSum <= 0.004;
+        entValEl.textContent = fmt(entSum);
+      }
+    }
+    if (autoSelectSenior && sr > 0 && srCountIn) {
+      srCountIn.value = String(Math.min(totalGuests, sr));
+      if (discSel && discSel.value === 'none') {
+        discSel.value = 'Senior';
+      }
+    }
+    update();
+  }
+
+  if (bookerTypeSel) bookerTypeSel.addEventListener('change', function () { recalcPartyAndSenior(true); });
+  document.addEventListener('companions:change', function () { recalcPartyAndSenior(true); });
+
   function update() {
     var sum = 0;
     rows.forEach(function (row) {
@@ -720,15 +873,62 @@ site_start('Your details', 'rooms', 'no-nav');
     var total = Math.round((roomTotal + sum) * 100) / 100;
     if (addonEl) addonEl.textContent = fmt(sum);
     grandEl.textContent = fmt(total);
+
+    var pct = 0;
+    var isStatutory = false;
+    var val = discSel ? discSel.value : 'none';
+    if (discSel && discSel.selectedOptions && discSel.selectedOptions[0]) {
+      var opt = discSel.selectedOptions[0];
+      pct = parseFloat(opt.getAttribute('data-pct') || '0') || 0;
+      isStatutory = opt.getAttribute('data-is-statutory') === '1';
+    }
+    if (discWrap) discWrap.hidden = !isStatutory;
+
+    var discAmt = 0;
+    var netTotal = total;
+    var srCnt = srCountIn ? Math.max(1, Math.min(totalGuests, parseInt(srCountIn.value, 10) || 1)) : 1;
+
+    if (val === 'Senior' || val === 'PWD') {
+      var vatExcl = total / 1.12;
+      var perPax = vatExcl / totalGuests;
+      var srShare = (perPax * 0.80) * srCnt;
+      var regShare = (perPax * 1.12) * (totalGuests - srCnt);
+      netTotal = Math.round((srShare + regShare) * 100) / 100;
+      discAmt = Math.max(0, Math.round((total - netTotal) * 100) / 100);
+    } else if (pct > 0) {
+      discAmt = Math.round(total * pct) / 100;
+      netTotal = Math.max(0, Math.round((total - discAmt) * 100) / 100);
+    }
+
+    if (discLblEl && discValEl && netLblEl && netValEl) {
+      var showDisc = discAmt > 0.004;
+      discLblEl.hidden = !showDisc;
+      discValEl.hidden = !showDisc;
+      netLblEl.hidden = !showDisc;
+      netValEl.hidden = !showDisc;
+      if (showDisc) {
+        discValEl.textContent = '−' + fmt(discAmt) + (isStatutory ? ' (' + srCnt + '/' + totalGuests + ' pax pro-rated)' : ' (' + pct + '%)');
+        netValEl.textContent = fmt(netTotal);
+      }
+    }
+
     if (needsDp && dueNowEl && dueResEl) {
       var dpAmt = dpPct >= 100 ? total : Math.round(total * dpPct) / 100;
       dueNowEl.textContent = fmt(dpAmt);
-      dueResEl.textContent = fmt(Math.max(0, Math.round((total - dpAmt) * 100) / 100));
+      var balAfterApproval = Math.round((netTotal - dpAmt) * 100) / 100;
+      dueResEl.textContent = balAfterApproval < -0.004
+        ? (fmt(0) + ' (' + fmt(Math.abs(balAfterApproval)) + ' refund/credit at check-in)')
+        : fmt(Math.max(0, balAfterApproval));
     }
   }
   rows.forEach(function (row) {
     row.querySelectorAll('input').forEach(function (i) { i.addEventListener('input', update); i.addEventListener('change', update); });
   });
+  if (discSel) discSel.addEventListener('change', update);
+  if (srCountIn) {
+    srCountIn.addEventListener('input', update);
+    srCountIn.addEventListener('change', update);
+  }
   update();
 })();
 </script>

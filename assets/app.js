@@ -1013,6 +1013,21 @@ document.addEventListener('click', function (e) {
   btn.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
 });
 
+// Back button on Login / Create account: return to previous non-auth page if referrer is same-origin, otherwise follow fallback href.
+document.addEventListener('click', function (e) {
+  var back = e.target.closest ? e.target.closest('[data-auth-back]') : null;
+  if (!back || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  try {
+    if (document.referrer && window.history.length > 1) {
+      var ref = new URL(document.referrer, location.href);
+      if (ref.origin === location.origin && !/\/(login|register|forgot|logout)\.php$/i.test(ref.pathname)) {
+        e.preventDefault();
+        window.history.back();
+      }
+    }
+  } catch (err) {}
+});
+
 
 // Editorial magazine homepage (index.php · body.home-lp): sticky header transition & directory tabs.
 (function () {
@@ -1177,6 +1192,95 @@ document.addEventListener('click', function (e) {
     if (!next) {
       activeEl = null;
       tip.hidden = true;
+    }
+  });
+})();
+
+// Dynamic "+ Add another guest" / "Remove" companion manager ([data-companion-manager]) across Checkout, Trip Checkout, and Staff/Admin/Superadmin pages.
+(function () {
+  function fieldName(ns, field, idx) {
+    return ns ? (ns + '[' + field + '][' + idx + ']') : (field + '[' + idx + ']');
+  }
+
+  function syncManager(mgr) {
+    if (!mgr) return;
+    var list = mgr.querySelector('[data-comp-list]');
+    var rows = list ? Array.prototype.slice.call(list.querySelectorAll('[data-comp-row]')) : [];
+    var maxGuests = Math.max(1, parseInt(mgr.getAttribute('data-max-guests') || '15', 10) || 15);
+    var maxComps = Math.max(0, maxGuests - 1);
+    var ns = mgr.getAttribute('data-ns') || '';
+    var countEl = mgr.querySelector('[data-comp-count]');
+    var totalEl = mgr.querySelector('[data-total-guests]');
+    var addBtn = mgr.querySelector('[data-comp-add]');
+    var emptyEl = mgr.querySelector('[data-comp-empty]');
+
+    rows.forEach(function (row, idx) {
+      var leg = row.querySelector('[data-comp-legend]');
+      if (leg) leg.textContent = 'Guest ' + (idx + 2) + ' · Companion ' + (idx + 1);
+      ['comp_type', 'comp_last', 'comp_first', 'comp_middle'].forEach(function (f) {
+        var el = row.querySelector('[data-field="' + f + '"]');
+        if (el) el.name = fieldName(ns, f, idx);
+      });
+    });
+
+    if (countEl) countEl.textContent = String(rows.length);
+    if (totalEl) totalEl.textContent = String(1 + rows.length);
+    if (addBtn) addBtn.hidden = rows.length >= maxComps;
+    if (emptyEl) emptyEl.hidden = rows.length > 0;
+
+    var ev;
+    try {
+      ev = new CustomEvent('companions:change', { bubbles: true, detail: { totalGuests: 1 + rows.length, companions: rows.length, maxGuests: maxGuests } });
+    } catch (e) {
+      ev = document.createEvent('CustomEvent');
+      ev.initCustomEvent('companions:change', true, true, { totalGuests: 1 + rows.length, companions: rows.length, maxGuests: maxGuests });
+    }
+    mgr.dispatchEvent(ev);
+  }
+
+  document.addEventListener('click', function (e) {
+    var addBtn = e.target.closest ? e.target.closest('[data-comp-add]') : null;
+    if (addBtn) {
+      var mgr = addBtn.closest('[data-companion-manager]');
+      if (!mgr) return;
+      var list = mgr.querySelector('[data-comp-list]');
+      var tpl = mgr.querySelector('template[data-comp-template]');
+      if (!list || !tpl) return;
+      var maxGuests = Math.max(1, parseInt(mgr.getAttribute('data-max-guests') || '15', 10) || 15);
+      var curRows = list.querySelectorAll('[data-comp-row]').length;
+      if (curRows >= maxGuests - 1) return;
+      var idx = curRows;
+      var html = tpl.innerHTML
+        .replace(/__IDX__/g, String(idx))
+        .replace(/__GNO__/g, String(idx + 2))
+        .replace(/__CNO__/g, String(idx + 1));
+      var wrap = document.createElement('div');
+      wrap.innerHTML = html;
+      var newRow = wrap.firstElementChild;
+      if (newRow) {
+        list.appendChild(newRow);
+        syncManager(mgr);
+        var firstIn = newRow.querySelector('input[data-field="comp_last"]');
+        if (firstIn) firstIn.focus();
+      }
+      return;
+    }
+
+    var remBtn = e.target.closest ? e.target.closest('[data-comp-remove]') : null;
+    if (remBtn) {
+      var row = remBtn.closest('[data-comp-row]');
+      var mgr2 = remBtn.closest('[data-companion-manager]');
+      if (row && mgr2) {
+        row.remove();
+        syncManager(mgr2);
+      }
+    }
+  });
+
+  document.addEventListener('change', function (e) {
+    if (e.target && e.target.classList && e.target.classList.contains('comp-type')) {
+      var mgr = e.target.closest ? e.target.closest('[data-companion-manager]') : null;
+      if (mgr) syncManager(mgr);
     }
   });
 })();

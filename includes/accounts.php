@@ -76,6 +76,35 @@ function safe_next(mixed $next, string $default = 'account.php'): string
     return preg_match('#^[a-z_]+\.php(\?[A-Za-z0-9_=&.%\-]*)?$#', $next) ? $next : $default;
 }
 
+/**
+ * Fallback destination for the Back button on login.php / register.php.
+ * Sends guests back to the page they came from (if inside this site and not an auth page),
+ * or to the current resort landing page when ?r= is set, or to the homepage.
+ */
+function auth_back_url(): string
+{
+    global $resort;
+    $fallback = $resort ? ru('landing.php') : 'index.php';
+    $ref = (string)($_SERVER['HTTP_REFERER'] ?? '');
+    if ($ref !== '') {
+        $host    = (string)($_SERVER['HTTP_HOST'] ?? '');
+        $refHost = (string)parse_url($ref, PHP_URL_HOST);
+        $refPort = parse_url($ref, PHP_URL_PORT);
+        $refHostPort = $refHost . ($refPort ? ':' . $refPort : '');
+        if ($refHost === '' || strcasecmp($refHost, $host) === 0 || strcasecmp($refHostPort, $host) === 0) {
+            $file = basename((string)parse_url($ref, PHP_URL_PATH));
+            $qs   = (string)parse_url($ref, PHP_URL_QUERY);
+            if (!in_array($file, ['login.php', 'register.php', 'forgot.php', 'logout.php'], true)) {
+                $cand = $file . ($qs !== '' ? '?' . $qs : '');
+                if (preg_match('#^[a-z_]+\.php(\?[A-Za-z0-9_=&.%\-]*)?$#', $cand)) {
+                    return $cand;
+                }
+            }
+        }
+    }
+    return $fallback;
+}
+
 // ---------- Passwords ----------
 /** Returns an error message, or '' when the password is acceptable. */
 function password_problem(string $password, string $email = ''): string

@@ -380,33 +380,45 @@ function companion_slots(int $adults, int $children): array
 }
 
 /**
- * Read and validate the other guests from posted form data (comp_type[], comp_first[], comp_last[]).
+ * Read and validate the other guests from posted form data (comp_type[], comp_first[], comp_middle[], comp_last[]).
+ * Supports dynamically added/removed companion rows up to $maxGuests total party size (1 primary booker + up to $maxGuests - 1 companions).
  * The guest chooses each person's type (Adult, Senior or Child). No exact age is asked.
- * With $required every slot must be filled in; otherwise empty rows are skipped.
- * Returns [['type', 'first_name', 'last_name'], ...]. Throws RuntimeException.
+ * With $required every active companion row must have first & last name filled in; otherwise empty rows are skipped.
+ * Returns [['type', 'first_name', 'middle_name', 'last_name'], ...]. Throws RuntimeException.
  */
-function parse_companions(array $post, int $adults, int $children, bool $required = true): array
+function parse_companions(array $post, int $adults, int $children, bool $required = true, ?int $maxGuests = null): array
 {
-    $slots = companion_slots($adults, $children);
-    $types = (array)($post['comp_type'] ?? []);
-    $first = (array)($post['comp_first'] ?? []);
-    $last  = (array)($post['comp_last'] ?? []);
-    $out   = [];
-    foreach ($slots as $i => $defaultType) {
-        $label = 'Guest ' . ($i + 2);
+    $types  = array_values((array)($post['comp_type'] ?? []));
+    $first  = array_values((array)($post['comp_first'] ?? []));
+    $middle = array_values((array)($post['comp_middle'] ?? []));
+    $last   = array_values((array)($post['comp_last'] ?? []));
+    $postedCount = max(count($types), count($first), count($last));
+    $slots  = companion_slots($adults, $children);
+    // If comp_present flag is posted (or companion arrays were posted), use the posted row count; otherwise fall back to initial slot count.
+    $hasDynamic = isset($post['comp_present']) || $postedCount > 0;
+    $rowCount = $hasDynamic ? $postedCount : count($slots);
+    if ($maxGuests !== null && $maxGuests >= 1 && $rowCount > $maxGuests - 1) {
+        throw new RuntimeException('This booking allows up to ' . plural($maxGuests, 'guest') . ' in total.');
+    }
+
+    $out = [];
+    for ($i = 0; $i < $rowCount; $i++) {
+        $label = 'Guest ' . ($i + 2) . ' (Companion ' . ($i + 1) . ')';
+        $defaultType = $slots[$i] ?? 'Adult';
         $type  = (string)($types[$i] ?? $defaultType);
         if (!isset(GUEST_TYPES[$type])) {
             throw new RuntimeException("Choose adult, senior or child for $label.");
         }
         $f = trim((string)($first[$i] ?? ''));
+        $m = trim((string)($middle[$i] ?? ''));
         $l = trim((string)($last[$i] ?? ''));
         if (!$required && $f === '' && $l === '') {
             continue;
         }
-        if ($f === '' || $l === '' || mb_strlen($f) > 60 || mb_strlen($l) > 60) {
-            throw new RuntimeException("Enter the first and last name of $label.");
+        if ($f === '' || $l === '' || mb_strlen($f) > 60 || mb_strlen($l) > 60 || mb_strlen($m) > 60) {
+            throw new RuntimeException("Enter the full name (first and last name) of $label.");
         }
-        $out[] = ['type' => $type, 'first_name' => $f, 'last_name' => $l];
+        $out[] = ['type' => $type, 'first_name' => $f, 'middle_name' => $m, 'last_name' => $l];
     }
     return $out;
 }
@@ -425,17 +437,17 @@ function type_counts(string $bookerType, array $companions): array
 }
 
 /**
- * num_adults / num_children for the reservation. Seniors count as adults. When every person was
- * entered the counts come from the chosen types (the total never changes); otherwise keep the
- * counts that were asked for.
+ * num_adults / num_children for the reservation. Seniors count as adults.
+ * When companions are provided (or dynamically adjusted), derive the counts from the booker + companions;
+ * otherwise keep the fallback $adults / $children when $allowResize is false.
  */
-function party_counts(string $bookerType, array $companions, int $adults, int $children): array
+function party_counts(string $bookerType, array $companions, int $adults, int $children, bool $allowResize = true): array
 {
-    if (count($companions) !== $adults + $children - 1) {
+    if (!$allowResize && count($companions) !== $adults + $children - 1) {
         return [$adults, $children];
     }
     $c = type_counts($bookerType, $companions);
-    return [$c['Adult'] + $c['Senior'], $c['Child']];
+    return [max(1, $c['Adult'] + $c['Senior']), max(0, $c['Child'])];
 }
 
 /** Party text for a reservation row ($res needs num_adults, num_children, num_guests, booker_type) and its companions. */
@@ -463,11 +475,13 @@ function save_companions(PDO $pdo, int $reservationId, array $list): void
 {
     // No age is collected. The age column is optional (database/upgrade_no_age.sql); an older table that
     // still requires it gets 0 so bookings keep working until the upgrade is run.
-    $ins = $pdo->prepare('INSERT INTO reservation_companion (reservation_id, guest_type, first_name, last_name) VALUES (?, ?, ?, ?)');
+    $ins = $pdo->prepare('INSERT INTO reservation_companion (reservation_id, guest_type, first_name, middle_name, last_name) VALUES (?, ?, ?, ?, ?)');
     $old = null;
     foreach ($list as $c) {
+        $mid = trim((string)($c['middle_name'] ?? ''));
+        $midVal = $mid !== '' ? $mid : null;
         try {
-            $ins->execute([$reservationId, $c['type'], $c['first_name'], $c['last_name']]);
+            $ins->execute([$reservationId, $c['type'], $c['first_name'], $midVal, $c['last_name']]);
         } catch (PDOException $e) {
             $old ??= $pdo->prepare('INSERT INTO reservation_companion (reservation_id, guest_type, first_name, last_name, age) VALUES (?, ?, ?, ?, 0)');
             $old->execute([$reservationId, $c['type'], $c['first_name'], $c['last_name']]);
@@ -478,7 +492,7 @@ function save_companions(PDO $pdo, int $reservationId, array $list): void
 function load_companions(PDO $pdo, int $reservationId): array
 {
     try {
-        $stmt = $pdo->prepare('SELECT guest_type, first_name, last_name FROM reservation_companion
+        $stmt = $pdo->prepare('SELECT guest_type, first_name, middle_name, last_name FROM reservation_companion
                                 WHERE reservation_id = ? ORDER BY companion_id');
         $stmt->execute([$reservationId]);
         return $stmt->fetchAll();
@@ -490,7 +504,12 @@ function load_companions(PDO $pdo, int $reservationId): array
 /** Turn parsed companions back into form values (used to refill the form). */
 function companion_values(array $companions): array
 {
-    return array_map(fn($c) => ['type' => $c['type'], 'first_name' => $c['first_name'], 'last_name' => $c['last_name']], $companions);
+    return array_map(fn($c) => [
+        'type'        => $c['type'] ?? $c['guest_type'] ?? 'Adult',
+        'first_name'  => (string)($c['first_name'] ?? ''),
+        'middle_name' => (string)($c['middle_name'] ?? ''),
+        'last_name'   => (string)($c['last_name'] ?? ''),
+    ], $companions);
 }
 
 /** "I am an: Adult / Senior citizen" choice for the person making the booking. */
@@ -504,35 +523,61 @@ function booker_type_field(string $value = 'Adult'): string
 }
 
 /**
- * Form rows for the other guests: for each person a type (adult, senior or child), first name and last name.
- * $values = previously entered rows (type, first_name, last_name), in slot order.
+ * Form rows for the other guests (companions): for each person a type (adult, senior or child), last name, first name, and optional middle name.
+ * Includes "+ Add another guest" and "Remove" buttons so the user or staff can dynamically add/remove companions up to $maxGuests total guests.
+ * $values = previously entered rows (type, first_name, middle_name, last_name), in slot order.
  */
-function companion_fields(int $adults, int $children, array $values = [], bool $required = true, string $ns = ''): string
+function companion_fields(int $adults, int $children, array $values = [], bool $required = true, string $ns = '', int $maxGuests = 0): string
 {
     $slots = companion_slots($adults, $children);
-    if (!$slots) {
-        return '';
+    if (count($values) > count($slots)) {
+        for ($k = count($slots); $k < count($values); $k++) {
+            $slots[] = $values[$k]['type'] ?? 'Adult';
+        }
     }
-    $html = '<h2>Other guests <small class="muted">(' . count($slots) . ' more)</small></h2>'
-          . '<div class="companions">';
-    $req = $required ? ' required' : '';
+    $initTotal = 1 + count($slots);
+    $maxTotal  = $maxGuests > 0 ? max($initTotal, $maxGuests) : max($initTotal, 15);
+    $maxComps  = max(0, $maxTotal - 1);
+    $req       = $required ? ' required' : '';
+    $presName  = $ns === '' ? 'comp_present' : $ns . '[comp_present]';
     // $ns = '' keeps the plain names (comp_type[0]); a namespace such as stay[ab12] gives stay[ab12][comp_type][0], so one page can hold several stays.
-    $name = fn(string $field, int $i): string => $ns === '' ? $field . '[' . $i . ']' : $ns . '[' . $field . '][' . $i . ']';
-    foreach ($slots as $i => $defaultType) {
-        $v    = $values[$i] ?? [];
-        $type = isset(GUEST_TYPES[$v['type'] ?? '']) ? $v['type'] : $defaultType;
+    $name = fn(string $field, string|int $i): string => $ns === '' ? $field . '[' . $i . ']' : $ns . '[' . $field . '][' . $i . ']';
+
+    $renderRow = function (int|string $idx, int|string $guestNo, int|string $compNo, string $type, array $v) use ($name, $req): string {
         $opts = '';
         foreach (array_keys(GUEST_TYPES) as $t) {
             $opts .= '<option value="' . $t . '"' . ($t === $type ? ' selected' : '') . '>'
                    . ($t === 'Senior' ? 'Senior (60+)' : ($t === 'Child' ? 'Child (0–17)' : 'Adult (18–59)')) . '</option>';
         }
-        $html .= '<fieldset class="companion"><legend>Guest ' . ($i + 2) . '</legend><div class="grid-form">'
-              . '<label><span>Type</span><select name="' . h($name('comp_type', $i)) . '" class="comp-type">' . $opts . '</select></label>'
-              . '<label><span>Last name</span><input name="' . h($name('comp_last', $i)) . '" value="' . h($v['last_name'] ?? '') . '" placeholder="Last name" maxlength="60"' . $req . '></label>'
-              . '<label><span>First name</span><input name="' . h($name('comp_first', $i)) . '" value="' . h($v['first_name'] ?? '') . '" placeholder="First name" maxlength="60"' . $req . '></label>'
-              . '</div></fieldset>';
+        return '<fieldset class="companion" data-comp-row>'
+             . '<legend><span data-comp-legend>Guest ' . h((string)$guestNo) . ' · Companion ' . h((string)$compNo) . '</span> '
+             . '<button type="button" class="link-btn comp-remove-btn" data-comp-remove aria-label="Remove guest" style="margin-left:8px;font-size:11.5px;color:#b91c1c;text-transform:none;letter-spacing:0">Remove</button></legend>'
+             . '<div class="grid-form">'
+             . '<label><span>Type</span><select name="' . h($name('comp_type', $idx)) . '" data-field="comp_type" class="comp-type">' . $opts . '</select></label>'
+             . '<label><span>Last name</span><input name="' . h($name('comp_last', $idx)) . '" data-field="comp_last" value="' . h((string)($v['last_name'] ?? '')) . '" placeholder="Last name" maxlength="60"' . $req . '></label>'
+             . '<label><span>First name</span><input name="' . h($name('comp_first', $idx)) . '" data-field="comp_first" value="' . h((string)($v['first_name'] ?? '')) . '" placeholder="First name" maxlength="60"' . $req . '></label>'
+             . '<label><span>Middle name <small class="muted">(optional)</small></span><input name="' . h($name('comp_middle', $idx)) . '" data-field="comp_middle" value="' . h((string)($v['middle_name'] ?? '')) . '" placeholder="Middle name" maxlength="60"></label>'
+             . '</div></fieldset>';
+    };
+
+    $html = '<div class="companion-manager" data-companion-manager data-max-guests="' . $maxTotal . '" data-ns="' . h($ns) . '" data-required="' . ($required ? '1' : '0') . '">'
+          . '<input type="hidden" name="' . h($presName) . '" value="1">'
+          . '<div class="comp-head" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:14px 0 8px">'
+          . '<h2 style="margin:0;font-size:15px">Other guests / Companions <small class="muted">(<span data-comp-count>' . count($slots) . '</span> companion' . (count($slots) === 1 ? '' : 's') . ' · <span data-total-guests>' . (1 + count($slots)) . '</span> of ' . $maxTotal . ' max guests)</small></h2>'
+          . '<button type="button" class="btn sm" data-comp-add' . (count($slots) >= $maxComps ? ' hidden' : '') . '>+ Add another guest</button>'
+          . '</div>'
+          . '<div class="companions" data-comp-list>';
+
+    foreach ($slots as $i => $defaultType) {
+        $v    = $values[$i] ?? [];
+        $type = isset(GUEST_TYPES[$v['type'] ?? '']) ? $v['type'] : $defaultType;
+        $html .= $renderRow($i, $i + 2, $i + 1, $type, $v);
     }
-    $html .= '</div>';
+
+    $html .= '</div>'
+          . '<p class="muted" data-comp-empty style="margin:4px 0 8px;font-size:13px"' . (count($slots) > 0 ? ' hidden' : '') . '>Only the primary guest is currently listed. Click <strong>+ Add another guest</strong> to add companions (up to ' . $maxTotal . ' total guests).</p>'
+          . '<template data-comp-template>' . $renderRow('__IDX__', '__GNO__', '__CNO__', 'Adult', []) . '</template>'
+          . '</div>';
     return $html;
 }
 
@@ -662,7 +707,9 @@ function create_booking_rows(PDO $pdo, array $d): array
 
         // Guest record: reuse by email, fill in blanks.
         $requests = trim((string)($d['requests'] ?? ''));
-        $stmt = $pdo->prepare('SELECT guest_id, first_name, last_name, phone, address FROM guest WHERE email = ?');
+        $midVal = trim((string)($d['middle_name'] ?? ''));
+        $midVal = $midVal !== '' ? $midVal : null;
+        $stmt = $pdo->prepare('SELECT guest_id, first_name, middle_name, last_name, phone, address FROM guest WHERE email = ?');
         $stmt->execute([$d['email']]);
         $guest = $stmt->fetch();
         if ($guest) {
@@ -675,15 +722,15 @@ function create_booking_rows(PDO $pdo, array $d): array
             }
             // Same email, different name (for example a family sharing one address): keep the name on the booking.
             if (mb_strtolower($guest['first_name'] . ' ' . $guest['last_name']) !== mb_strtolower($d['first_name'] . ' ' . $d['last_name'])) {
-                $requests = mb_substr('Booked under the name ' . $d['first_name'] . ' ' . $d['last_name'] . '. ' . $requests, 0, 500);
+                $requests = mb_substr('Booked under the name ' . format_full_name($d['first_name'], $midVal, $d['last_name']) . '. ' . $requests, 0, 500);
             }
-            if (empty($guest['phone']) || empty($guest['address'])) {
-                $pdo->prepare('UPDATE guest SET phone = COALESCE(phone, ?), address = COALESCE(address, ?) WHERE guest_id = ?')
-                    ->execute([$d['phone'] ?: null, $d['address'] ?: null, $guestId]);
+            if (empty($guest['phone']) || empty($guest['address']) || ($midVal !== null && empty($guest['middle_name']))) {
+                $pdo->prepare('UPDATE guest SET middle_name = COALESCE(middle_name, ?), phone = COALESCE(phone, ?), address = COALESCE(address, ?) WHERE guest_id = ?')
+                    ->execute([$midVal, $d['phone'] ?: null, $d['address'] ?: null, $guestId]);
             }
         } else {
-            $pdo->prepare('INSERT INTO guest (first_name, last_name, email, phone, address) VALUES (?, ?, ?, ?, ?)')
-                ->execute([$d['first_name'], $d['last_name'], $d['email'], $d['phone'] ?: null, $d['address'] ?: null]);
+            $pdo->prepare('INSERT INTO guest (first_name, middle_name, last_name, email, phone, address) VALUES (?, ?, ?, ?, ?, ?)')
+                ->execute([$d['first_name'], $midVal, $d['last_name'], $d['email'], $d['phone'] ?: null, $d['address'] ?: null]);
             $guestId = (int)$pdo->lastInsertId();
         }
 
@@ -728,15 +775,19 @@ function create_booking_rows(PDO $pdo, array $d): array
             $insSvc->execute([$reservationId, (int)$serviceId, $d['check_in'], $qty, (float)$unit * $qty]);
         }
 
-        save_companions($pdo, $reservationId, ($exclusive || $isCottage) ? [] : ($d['companions'] ?? []));
+        save_companions($pdo, $reservationId, $d['companions'] ?? []);
+        if (!empty($d['discount']) && is_array($d['discount'])) {
+            apply_reservation_discount_data($pdo, $reservationId, $d['discount']);
+        }
         recalc_total($pdo, $reservationId);
 
-        // Snapshot required downpayment according to this resort's settings.
+        // Rule 1: Snapshot required downpayment strictly from the REGULAR (non-discounted) subtotal.
+        $grossSubtotal = reservation_gross_subtotal($pdo, $reservationId);
         $totStmt = $pdo->prepare('SELECT total_amount FROM reservation WHERE reservation_id = ?');
         $totStmt->execute([$reservationId]);
         $totalAmount = (float)$totStmt->fetchColumn();
         $payRules    = resort_payment_rules();
-        $reqDp       = $payRules['enabled'] ? calc_downpayment($totalAmount, $payRules['downpayment_percent']) : 0.0;
+        $reqDp       = $payRules['enabled'] ? calc_downpayment($grossSubtotal, $payRules['downpayment_percent']) : 0.0;
         $pdo->prepare('UPDATE reservation SET required_downpayment = ? WHERE reservation_id = ?')
             ->execute([$reqDp, $reservationId]);
 
@@ -750,17 +801,234 @@ function create_booking_rows(PDO $pdo, array $d): array
             $datesLabel = $isCottage
                 ? date('M j', strtotime($d['check_in']))
                 : (date('M j', strtotime($d['check_in'])) . '–' . date('M j', strtotime($d['check_out'])));
+            $discNotice = (!empty($d['discount']['type']) && $d['discount']['type'] !== 'none')
+                ? (' · Discount claim (' . ($d['discount']['label'] ?? $d['discount']['type']) . ')')
+                : '';
             add_staff_notification(
                 $pdo,
                 resort_id(),
                 $reservationId,
                 'booking',
                 ($isCottage ? 'New cottage booking · ' : 'New booking · ') . $ref,
-                $gName . ' · ' . $whatLabel . ' (' . $datesLabel . ')',
+                $gName . ' · ' . $whatLabel . ' (' . $datesLabel . ')' . $discNotice,
                 'reservation_view.php?id=' . $reservationId
             );
         }
 
         return ['id' => $reservationId, 'ref' => $ref, 'total' => $totalAmount, 'required_downpayment' => $reqDp];
     }
+}
+
+// ---------- Over-the-Counter Discounts (RA 9994 Senior Citizen / PWD Pro-Rated + Special Offers — No ID Photo Upload) ----------
+const STATUTORY_DISCOUNT_PERCENT = 20.0;
+
+/** Active special discount offers created by Superadmin (resort_id IS NULL) or Resort Admin for $resortId and optional $stayDate. */
+function active_special_discounts(PDO $pdo, int $resortId, ?string $stayDate = null): array
+{
+    try {
+        $sql = 'SELECT * FROM resort_discount
+                 WHERE is_active = 1 AND archived_at IS NULL
+                   AND (resort_id IS NULL OR resort_id = :rid)';
+        $params = ['rid' => $resortId];
+        if ($stayDate !== null && valid_date($stayDate)) {
+            $sql .= ' AND (start_date IS NULL OR start_date <= :d1) AND (end_date IS NULL OR end_date >= :d2)';
+            $params['d1'] = $stayDate;
+            $params['d2'] = $stayDate;
+        }
+        $sql .= ' ORDER BY resort_id IS NULL ASC, percent_off DESC, discount_id DESC';
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->fetchAll();
+    } catch (Throwable $e) {
+        return [];
+    }
+}
+
+/**
+ * Parse and validate a guest's over-the-counter discount claim on checkout.
+ * No ID photo upload or ID number is collected online; staff/admin/superadmin verify over the counter and approve.
+ * $choice: '' / 'none', 'Senior', 'PWD', or 'Special:<discount_id>'.
+ */
+function parse_discount_application(
+    PDO $pdo,
+    int $resortId,
+    string $stayDate,
+    string $choice,
+    int $totalGuests = 1,
+    int $claimedSeniorCount = 1
+): array {
+    $choice = trim($choice);
+    if ($choice === '' || $choice === 'none') {
+        return [
+            'type'                       => null,
+            'label'                      => null,
+            'percent'                    => 0.0,
+            'status'                     => null,
+            'offer_id'                   => null,
+            'has_senior_claim'           => 0,
+            'claimed_senior_count'       => 0,
+            'senior_verification_status' => null,
+        ];
+    }
+
+    if ($choice === 'Senior' || $choice === 'PWD') {
+        $claimed = max(1, min(max(1, $totalGuests), $claimedSeniorCount));
+        $label = $choice === 'Senior'
+            ? ('Senior Citizen Discount (' . plural($claimed, 'senior') . ' · 20% + VAT-exempt share)')
+            : ('PWD Discount (' . plural($claimed, 'guest') . ' · 20% + VAT-exempt share)');
+        return [
+            'type'                       => $choice,
+            'label'                      => $label,
+            'percent'                    => STATUTORY_DISCOUNT_PERCENT,
+            'status'                     => 'Pending',
+            'offer_id'                   => null,
+            'has_senior_claim'           => 1,
+            'claimed_senior_count'       => $claimed,
+            'senior_verification_status' => 'pending',
+        ];
+    }
+
+    if (preg_match('/^Special:(\d+)$/', $choice, $m)) {
+        $offerId = (int)$m[1];
+        $offers  = active_special_discounts($pdo, $resortId, $stayDate);
+        $found   = null;
+        foreach ($offers as $of) {
+            if ((int)$of['discount_id'] === $offerId) {
+                $found = $of;
+                break;
+            }
+        }
+        if (!$found) {
+            throw new RuntimeException('That special discount offer is no longer available for your stay dates.');
+        }
+        $pct = max(1.0, min(90.0, (float)$found['percent_off']));
+        $pctStr = rtrim(rtrim(number_format($pct, 2, '.', ''), '0'), '.');
+        return [
+            'type'                       => 'Special',
+            'label'                      => $found['title'] . ' (' . $pctStr . '% off)',
+            'percent'                    => $pct,
+            'status'                     => 'Pending',
+            'offer_id'                   => $offerId,
+            'has_senior_claim'           => 0,
+            'claimed_senior_count'       => 0,
+            'senior_verification_status' => null,
+        ];
+    }
+
+    throw new RuntimeException('Please choose a valid discount option.');
+}
+
+/** Save parsed discount claim columns onto a reservation row (before recalc_total). Never stores any ID image or ID number. */
+function apply_reservation_discount_data(PDO $pdo, int $reservationId, array $disc): void
+{
+    $pdo->prepare(
+        'UPDATE reservation
+            SET discount_type = ?,
+                discount_label = ?,
+                discount_percent = ?,
+                discount_status = ?,
+                discount_id_image = NULL,
+                id_image_path = NULL,
+                osca_or_gov_id_number = NULL,
+                discount_offer_id = ?,
+                has_senior_claim = ?,
+                claimed_senior_count = ?,
+                senior_verification_status = ?
+          WHERE reservation_id = ?'
+    )->execute([
+        $disc['type'] ?? null,
+        $disc['label'] ?? null,
+        (float)($disc['percent'] ?? 0.0),
+        $disc['status'] ?? null,
+        $disc['offer_id'] ?? null,
+        (int)($disc['has_senior_claim'] ?? 0),
+        (int)($disc['claimed_senior_count'] ?? 0),
+        $disc['senior_verification_status'] ?? null,
+        $reservationId,
+    ]);
+}
+
+/**
+ * Staff, Resort Admin, or Superadmin approves or rejects a reservation's discount over the counter upon verifying.
+ * No ID photo or ID number is stored.
+ */
+function staff_decide_discount(
+    PDO $pdo,
+    int $reservationId,
+    array $staffMember,
+    string $decision,
+    string $note = '',
+    array $overTheCounter = []
+): array {
+    $note = trim($note);
+    if (mb_strlen($note) > 255) {
+        throw new RuntimeException('Keep the discount note under 255 characters.');
+    }
+    $st = $pdo->prepare('SELECT * FROM reservation WHERE reservation_id = ?');
+    $st->execute([$reservationId]);
+    $res = $st->fetch();
+    if (!$res) {
+        throw new RuntimeException('Reservation not found.');
+    }
+    if (in_array($res['status'], ['Cancelled', 'Checked-out'], true)) {
+        throw new RuntimeException('Cannot change discounts on a ' . strtolower($res['status']) . ' reservation.');
+    }
+    if (empty($res['discount_type']) && empty($res['has_senior_claim'])) {
+        throw new RuntimeException('No discount has been applied to this reservation.');
+    }
+
+    $totalGuests   = max(1, (int)($res['num_guests'] ?? ((int)$res['num_adults'] + (int)$res['num_children'])));
+    $isSeniorClaim = (int)($res['has_senior_claim'] ?? 0) === 1 || in_array($res['discount_type'], ['Senior', 'PWD'], true);
+    $newStatus     = $decision === 'approve' ? 'Approved' : 'Rejected';
+    $srStatus      = $decision === 'approve' ? 'verified' : 'rejected';
+    $approverName  = trim((string)($staffMember['full_name'] ?? 'Staff'));
+
+    $verifiedCount   = 0;
+    $physicalPresent = 0;
+    $overpayRes      = trim((string)($overTheCounter['overpayment_resolution'] ?? ($res['overpayment_resolution'] ?? '')));
+
+    if ($isSeniorClaim && $decision === 'approve') {
+        $physicalPresent = 1;
+        $verifiedCount   = max(1, min($totalGuests, (int)($overTheCounter['verified_senior_count'] ?? ($res['claimed_senior_count'] ?: 1))));
+    }
+
+    $label = (string)($res['discount_label'] ?? '');
+    if ($isSeniorClaim && $decision === 'approve') {
+        $prefix = ($res['discount_type'] ?? 'Senior') === 'PWD' ? 'PWD Discount' : 'Senior Citizen Discount';
+        $label  = $prefix . ' (' . plural($verifiedCount, ($res['discount_type'] ?? 'Senior') === 'PWD' ? 'guest' : 'senior') . ' verified · 20% + VAT-exempt share)';
+    }
+
+    $pdo->prepare(
+        'UPDATE reservation
+            SET discount_status = ?,
+                discount_label = ?,
+                discount_id_image = NULL,
+                id_image_path = NULL,
+                osca_or_gov_id_number = NULL,
+                senior_verification_status = ?,
+                verified_senior_count = ?,
+                senior_physical_present = ?,
+                overpayment_resolution = ?,
+                discount_verified_at = NOW(),
+                discount_verified_by = ?,
+                discount_approver_name = ?,
+                discount_note = ?
+          WHERE reservation_id = ?'
+    )->execute([
+        $newStatus,
+        $label !== '' ? $label : null,
+        $isSeniorClaim ? $srStatus : null,
+        $verifiedCount,
+        $physicalPresent,
+        $overpayRes !== '' ? $overpayRes : null,
+        (int)($staffMember['staff_id'] ?? 0) ?: null,
+        $approverName !== '' ? $approverName : null,
+        $note !== '' ? $note : null,
+        $reservationId,
+    ]);
+
+    recalc_total($pdo, $reservationId);
+
+    $st->execute([$reservationId]);
+    return $st->fetch() ?: $res;
 }

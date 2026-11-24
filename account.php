@@ -15,17 +15,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     try {
         if ($action === 'profile') {
-            $last  = trim((string)($_POST['last_name'] ?? ''));
-            $first = trim((string)($_POST['first_name'] ?? ''));
-            $phone = trim((string)($_POST['phone'] ?? ''));
-            if ($first === '' || mb_strlen($first) > 60 || $last === '' || mb_strlen($last) > 60) {
-                throw new RuntimeException('Enter your last name and first name.');
+            $last   = trim((string)($_POST['last_name'] ?? ''));
+            $first  = trim((string)($_POST['first_name'] ?? ''));
+            $middle = trim((string)($_POST['middle_name'] ?? ''));
+            $phone  = trim((string)($_POST['phone'] ?? ''));
+            if ($first === '' || mb_strlen($first) > 60 || $last === '' || mb_strlen($last) > 60 || mb_strlen($middle) > 60) {
+                throw new RuntimeException('Enter your last name and first name (up to 60 characters each).');
             }
             if ($phone !== '' && !preg_match('/^[0-9+()\-\s]{7,30}$/', $phone)) {
                 throw new RuntimeException('Phone numbers can only have digits, spaces, + and -.');
             }
-            $pdo->prepare('UPDATE guest SET first_name = ?, last_name = ?, phone = ? WHERE guest_id = ?')
-                ->execute([$first, $last, $phone ?: null, $gid]);
+            $pdo->prepare('UPDATE guest SET first_name = ?, middle_name = ?, last_name = ?, phone = ? WHERE guest_id = ?')
+                ->execute([$first, $middle !== '' ? $middle : null, $last, $phone ?: null, $gid]);
             $_SESSION['guest_name'] = $first;
             flash('Your details are saved.');
             redirect('account.php');
@@ -55,7 +56,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } catch (RuntimeException $e) {
         $error[$action === 'password' ? 'password' : 'profile'] = $e->getMessage();
         $guest = array_merge($guest, $action === 'profile' ? [
-            'first_name' => $first ?? $guest['first_name'], 'last_name' => $last ?? $guest['last_name'],
+            'first_name' => $first ?? $guest['first_name'], 'middle_name' => $middle ?? ($guest['middle_name'] ?? ''), 'last_name' => $last ?? $guest['last_name'],
             'phone' => $phone ?? $guest['phone'], 'address' => $addr ?? $guest['address'],
         ] : []);
     }
@@ -91,7 +92,7 @@ foreach ($bookings as $b) {
 }
 $totalBookings = count($bookings);
 $hasMore       = $totalBookings > 5;
-$fullName      = trim($guest['first_name'] . ' ' . $guest['last_name']);
+$fullName      = format_full_name((string)$guest['first_name'], (string)($guest['middle_name'] ?? ''), (string)$guest['last_name']);
 
 site_start('My account', 'account');
 ?>
@@ -99,7 +100,7 @@ site_start('My account', 'account');
   <div class="acct-id">
     <span class="acct-avatar" aria-hidden="true"><?= h(initials($fullName)) ?></span>
     <div class="acct-meta">
-      <h1><?= h(format_name_inv((string)$guest['last_name'], (string)$guest['first_name'])) ?></h1>
+      <h1><?= h(format_name_inv((string)$guest['last_name'], (string)$guest['first_name'], (string)($guest['middle_name'] ?? ''))) ?></h1>
       <p class="muted"><?= h($guest['email']) ?><?= !empty($guest['phone']) ? ' · ' . h($guest['phone']) : '' ?></p>
     </div>
   </div>
@@ -254,8 +255,9 @@ site_start('My account', 'account');
       <div class="grid-form two-col">
         <label><span>Last name</span><input placeholder="Santos" name="last_name" value="<?= h($guest['last_name']) ?>" maxlength="60" required></label>
         <label><span>First name</span><input placeholder="Maria" name="first_name" value="<?= h($guest['first_name']) ?>" maxlength="60" required></label>
-        <label><span>Email</span><input value="<?= h($guest['email']) ?>" disabled></label>
+        <label><span>Middle name <small class="muted">(optional)</small></span><input placeholder="Cruz" name="middle_name" value="<?= h((string)($guest['middle_name'] ?? '')) ?>" maxlength="60"></label>
         <label><span>Phone</span><input placeholder="0917 123 4567" type="tel" name="phone" value="<?= h($guest['phone'] ?? '') ?>" maxlength="30"></label>
+        <label class="wide"><span>Email</span><input value="<?= h($guest['email']) ?>" disabled></label>
       </div>
       <div class="actions"><button class="btn primary" type="submit">Save details</button></div>
     </form>
